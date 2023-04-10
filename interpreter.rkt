@@ -1,5 +1,5 @@
 #lang racket
-;; Audrey Zhu, Fletcher Li, Zongbo Zhang
+;; Audrey Zhu, Fletcher Li
 
 (require "functionParser.rkt")
 
@@ -15,24 +15,16 @@
 ; finds and runs the main function
 (define runmain
   (lambda (state return)
-    (if (lookup 'main state) (evaluate (caddr(lookup 'main state)) (removebinding 'main state)  return)
-    (else (error 'noreturn "No value returned")))))
-      
-    
+    (if (lookup 'main state)
+        (evaluate (caddr(lookup 'main state)) (removebinding 'main state) return)
+        (error 'noreturn "No value returned"))))
 
 ; evaluate a parse tree and return the final state
 (define evaluate
   (lambda (tree state return)
     (cond
-      ((null? tree) (runmain state return))
+      ((null? tree) (error 'noreturn "No value returned"))
       (else         (evaluate (cdr tree) (M_state (car tree) state return) return)))))
-
-; returns the state with global variables and function definitions
-(define globalstate
-  (lambda (tree state)
-    (cond
-      ((null? tree) (error 'nomain "No main function"))
-      (else         (globalstate (cdr tree) (M_state (car tree) state))))))
 
 ;; HELPER FUNCTIONS
 
@@ -164,8 +156,9 @@
   (lambda (state)
     (restof state)))
 
-;; FUNCTION DEFINITION HELPER FUNCTIONS
+;; FUNCTION-RELATED HELPER FUNCTIONS
 
+; takes a function definition and a state and returns the function's closure
 (define makeclosure
   (lambda (func state)
     (list (getfuncname func) (getformparams func) (getbod func) state)))
@@ -221,7 +214,26 @@
                     (M_val-cpt (rightop expr) state (lambda (v2) (return (remainder v1 v2)))))))
       ((eq? #t (M_bool expr state)) (return 'true))           ; true
       ((eq? #f (M_bool expr state)) (return 'false))          ; false
+      ((eq? 'funcall (operator expr)) (return (funcall (lookup (leftop expr) state) (restof expr))))
       (else (error 'unknownop "Bad Operator"))))) ; error
+
+; M_val function for processing function calls
+; takes a function name and a list of actual parameters and returns the function's return value
+(define funcall
+  (lambda (closure params state)
+    (M_state (cons 'begin (getbod closure))
+             (bindparams params (getformparams closure) (addlayer (getfuncstate closure)) state)
+             (lambda (v) v))))
+
+(define bindparams
+  (lambda (aparams fparams fstate cstate)
+    (cond
+      ((null? fparams) fstate)
+      ((null? aparams) ('error 'missparams "Missing at least one input"))
+      (else            (bindparams (cdr aparams)
+                                   (cdr fparams)
+                                   (addbinding (car fparams) (M_val (car aparams) cstate) fstate)
+                                   cstate)))))
 
 ; maps an expression to a boolean value
 (define M_bool
@@ -282,22 +294,21 @@
 (define M_state-cpt
   (lambda (expr state return next continue break throw)
     (cond
-      ((null? expr)                  (next state))
-      ((not (pair? expr))            (next state))                          ; not a statement
-      ((eq? (operator expr) 'return) (return (M_val (leftop expr) state)))  ; return
+      ((null? expr)       (next state))
+      ((not (pair? expr)) (next state))                                      ; not a statement
       ((and (eq? (operator expr) 'var) (not (eq? #f (lookup (leftop expr) state))))
-       (error 'redefine "Variable Already Declared"))                       ; redefinition
-      ((and (eq? (operator expr) 'var) (null? (cddr expr)))                 ; declaration
+       (error 'redefine "Variable Already Declared"))                        ; redefinition
+      ((and (eq? (operator expr) 'var) (null? (cddr expr)))                  ; declaration
        (next (addname (leftop expr) (removebinding (leftop expr) state))))
-      ((eq? (operator expr) 'var)                                           ; declaration + assignment
+      ((eq? (operator expr) 'var)                                            ; declaration+assignment
        (next (addbinding (leftop expr) (M_val (rightop expr) state) state)))
-      ((and (eq? (operator expr) '=) (eq? #f (lookup (leftop expr) state))) ; variable not declared
+      ((and (eq? (operator expr) '=) (eq? #f (lookup (leftop expr) state)))  ; variable not declared
        (error 'novar "Variable Not Declared"))                          
       ((eq? (operator expr) '=) (next (assign (leftop expr) (M_val (rightop expr) state) state))) ; =
-      ((and (or (eq? (operator expr) 'if) (eq? (operator expr) 'while))     ; error: condition
+      ((and (or (eq? (operator expr) 'if) (eq? (operator expr) 'while))      ; error: condition
             (number? (M_bool (leftop expr) state)))
        (error 'badcon "Bad Condition"))
-      ((and (eq? (operator expr) 'if) (M_bool (leftop expr) state))         ; if: then statement
+      ((and (eq? (operator expr) 'if) (M_bool (leftop expr) state))          ; if: then statement
        (M_state-cpt (leftop expr)
                     state
                     return
@@ -305,7 +316,7 @@
                     continue
                     break
                     throw)) ;
-      ((and (eq? (operator expr) 'if) (not (null? (cdddr expr))))           ; if: else statement
+      ((and (eq? (operator expr) 'if) (not (null? (cdddr expr))))            ; if: else statement
        (M_state-cpt (leftop expr)
                     state
                     return
@@ -313,14 +324,14 @@
                     continue
                     break
                     throw))
-      ((eq? (operator expr) 'if)       (M_state-cpt (leftop expr)           ; if: side effect
+      ((eq? (operator expr) 'if)       (M_state-cpt (leftop expr)            ; if: side effect
                                                     state
                                                     return
                                                     next
                                                     continue
                                                     break
                                                     throw))
-      ((eq? (operator expr) 'while)    (whileloop (leftop expr)             ; while
+      ((eq? (operator expr) 'while)    (whileloop (leftop expr)              ; while
                                                   (rightop expr)
                                                   state
                                                   return
@@ -328,14 +339,14 @@
                                                   continue
                                                   (lambda (v) (next (removelayer v)))
                                                   throw))
-      ((eq? (operator expr) 'begin)    (block (restof expr)                 ; statement block
+      ((eq? (operator expr) 'begin)    (block (restof expr)                  ; statement block
                                               (addlayer state)
                                               return
                                               (lambda (v) (next (removelayer v)))
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                   ; try-catch-continue
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                    ; try-catch-continue
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -344,10 +355,11 @@
                                             continue
                                             break
                                             throw))
-      ((eq? (operator expr) 'continue) (continue state))                    ; continue
-      ((eq? (operator expr) 'break)    (break state))                       ; break
-      ((eq? (operator expr) 'throw)    (throw state (leftop expr)))         ; throw
-      ((eq? (operator expr) 'function) (addbinding (leftop expr)            ; function definition
+      ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state))) ; return
+      ((eq? (operator expr) 'continue) (continue state))                     ; continue
+      ((eq? (operator expr) 'break)    (break state))                        ; break
+      ((eq? (operator expr) 'throw)    (throw state (leftop expr)))          ; throw
+      ((eq? (operator expr) 'function) (addbinding (leftop expr)             ; function definition
                                                    (makeclosure (restof expr) state)
                                                    state))
       (else (next state)))))
