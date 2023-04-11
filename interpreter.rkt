@@ -16,14 +16,14 @@
 (define runmain
   (lambda (state return)
     (if (lookup 'main state)
-        (evaluate (caddr(lookup 'main state)) (removebinding 'main state) return)
+        (funcall (lookup 'main state) '() state)
         (error 'noreturn "No value returned"))))
 
 ; evaluate a parse tree and return the final state
 (define evaluate
   (lambda (tree state return)
     (cond
-      ((null? tree) (error 'noreturn "No value returned"))
+      ((null? tree) (runmain state return))
       (else         (evaluate (cdr tree) (M_state (car tree) state return) return)))))
 
 ;; HELPER FUNCTIONS
