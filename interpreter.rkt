@@ -1,5 +1,5 @@
 #lang racket
-;; Audrey Zhu, Fletcher Li
+;; Audrey Zhu, Fletcher Li, Zongbo Zhang
 
 (require "functionParser.rkt")
 
