@@ -45,9 +45,7 @@
 (define createstate (lambda () '(())))
 
 ; returns the top layer of the state
-(define toplayer
-  (lambda (state)
-    (car state)))
+(define toplayer car)
 
 ; returns all layers except the top layer of the state
 (define restof cdr)
