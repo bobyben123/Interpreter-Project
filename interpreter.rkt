@@ -420,9 +420,9 @@
       ((eq? (operator expr) 'continue) (continue state))                     ; continue
       ((eq? (operator expr) 'break)    (break state))                        ; break
       ((eq? (operator expr) 'throw)    (throw state (leftop expr)))          ; throw
-      ((eq? (operator expr) 'function) (addbinding (leftop expr)             ; function definition
-                                                   (makeclosure (restof expr) state)
-                                                   state))
+      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)       ; function definition
+                                                         (makeclosure (restof expr) state)
+                                                         state)))
       (else (next state)))))
 
 ; M_state function that deals with statement blocks
