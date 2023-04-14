@@ -27,7 +27,11 @@
                                 (if (number? e)
                                     (error 'thrownerror (number->string e))
                                     (error 'thrownerror e))))
-        (evaluate (cdr tree) (M_state (car tree) state return) return))))
+        (evaluate (cdr tree) (M_state (car tree) state return (lambda (v e)
+                                                                (if (number? e)
+                                                                    (error 'thrownerror (number->string e))
+                                                                    (error 'thrownerror e))))
+                  return))))
 
 ;; HELPER FUNCTIONS
 
@@ -282,7 +286,7 @@
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
-             (lambda (v) v))))
+             (lambda (v) v) throw)))
 
 ; maps an expression to a boolean value
 (define M_bool
@@ -359,17 +363,14 @@
 
 ; takes an expression and a state and returns a new state
 (define M_state
-  (lambda (expr state return)
+  (lambda (expr state return throw)
     (M_state-cpt expr
                  state
                  return
                  (lambda (v) v)
                  (lambda (v) (error 'badcontinue "Invalid Continue"))
                  (lambda (v) (error 'badbreak "Invalid Break"))
-                 (lambda (v e)
-                   (if (number? e)
-                       (error 'thrownerror (number->string e))
-                       (error 'thrownerror e))))))
+                 throw)))
 
 (define M_state-cpt
   (lambda (expr state return next continue break throw)
