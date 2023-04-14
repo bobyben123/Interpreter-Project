@@ -27,7 +27,7 @@
                                 (if (number? e)
                                     (error 'thrownerror (number->string e))
                                     (error 'thrownerror e))))
-        (evaluate (cdr tree) (M_state (car tree) state return) return))))
+        (evaluate (cdr tree) (M_state (car tree) state return (lambda (v) v)) return))))
 
 ;; HELPER FUNCTIONS
 
@@ -39,13 +39,17 @@
 
 (define else cadddr)
 
+(define param cddr)
+
 ;; STATE HELPER FUNCTIONS
 
 ; creates an empty state with one layer
 (define createstate (lambda () '(())))
 
 ; returns the top layer of the state
-(define toplayer car)
+(define toplayer
+  (lambda (state)
+    (car state)))
 
 ; returns all layers except the top layer of the state
 (define restof cdr)
@@ -174,13 +178,21 @@
 ; takes a function closure and a state and returns the layer of the state where the function resides
 (define getfuncstate
   (lambda (closure state)
+    (getfuncstate-cpt closure state (lambda (v) v))))
+
+(define getfuncstate-cpt
+  (lambda (closure state return)
     (cond
       ((null? state)                                 (error 'nofunc "Function not defined"))
-      ((eq? (firstname state) (getfuncname closure)) state)
-      ((null? (toplayer state))                      (getfuncstate closure (removelayer state)))
-      (else                                          (getfuncstate closure
-                                                                   (cons (cdr (toplayer state))
-                                                                         (restof state)))))))
+      ((eq? (firstname state) (getfuncname closure)) (return state))
+      ((null? (toplayer state))                      (getfuncstate-cpt closure
+                                                                       (removelayer state)
+                                                                       return))
+      (else
+       (getfuncstate-cpt closure
+                         (cons (cdr (toplayer state)) (restof state))
+                         (lambda (v)
+                           (return (cons (cons (car (toplayer state)) (toplayer v)) (restof v)))))))))
 
 ;; MAPPINGS
 
@@ -236,9 +248,9 @@
       ((eq? #t (M_bool expr state throw)) (return 'true))     ; true
       ((eq? #f (M_bool expr state throw)) (return 'false))    ; false
       ((eq? 'funcall (operator expr)) (return (funcall (lookup (leftop expr) state)
-                                                       (cddr expr)
+                                                       (param expr)
                                                        state
-                                                       throw)))
+                                                       throw))) 
       (else (error 'unknownop "Bad Operator"))))) ; error
 
 ; M_val function for processing function calls
@@ -251,7 +263,7 @@
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
-             (lambda (v) v))))
+             (lambda (v) v) (lambda (v) v))))
 
 (define bindparams
   (lambda (aparams fparams fstate cstate throw)
@@ -331,7 +343,7 @@
                                                                       throw))
                                                         throw))
       ((eq? 'funcall (operator expr))       (return (funcall (lookup (leftop expr) state)    ; funcall
-                                                             (cddr expr)
+                                                             (param expr)
                                                              state
                                                              throw)))
       (else                                 (return -1)))))                           ; not a boolean
@@ -340,11 +352,11 @@
 
 ; takes an expression and a state and returns a new state
 (define M_state
-  (lambda (expr state return)
+  (lambda (expr state return next)
     (M_state-cpt expr
                  state
                  return
-                 (lambda (v) v)
+                 next
                  (lambda (v) (error 'badcontinue "Invalid Continue"))
                  (lambda (v) (error 'badbreak "Invalid Break"))
                  (lambda (v e)
@@ -423,7 +435,43 @@
       ((eq? (operator expr) 'function) (next (addbinding (leftop expr)       ; function definition
                                                          (makeclosure (restof expr) state)
                                                          state)))
+      ((eq? (operator expr) 'funcall)  (funcstate (lookup (leftop expr) state)
+                                                  (param expr)
+                                                  state
+                                                  throw
+                                                  next)) ;funcall here would not return anything
       (else (next state)))))
+
+
+; M_state function for processing function calls
+; takes a function name and a list of actual parameters and returns the function's state
+(define funcstate
+  (lambda (closure params state throw next)
+    (M_state (removereturn (cons 'begin (getbod closure)))
+             (bindparams params
+                         (getformparams closure)
+                         (addlayer (getfuncstate closure state))
+                         state
+                         throw)
+             (lambda (v s) (next s))
+             next)))
+
+;Removes return so that function will keep state
+(define removereturn
+  (lambda (closure)
+    (cond
+    ((null? closure) '()) ; base case: empty list
+    ((pair? closure)
+     (let ((head (car closure))
+           (tail (cdr closure)))
+       (cond
+         ((and (pair? head)
+               (eq? (car head) 'return)) ; if head matches pattern, skip it
+          (removereturn tail))
+         (else ; otherwise, recursively process head and tail
+          (cons (removereturn head)
+                (removereturn tail))))))
+    (else closure)))) ; atom: return it as is
 
 ; M_state function that deals with statement blocks
 (define block
