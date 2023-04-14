@@ -85,20 +85,19 @@
 (define assign-cpt
   (lambda (name value state return)
     (cond
-      ((null? state)
-       (error 'novar "Variable Not Declared"))
-      ((null? (toplayer state))
-       (assign-cpt name value (restof state) (lambda (v) (return (cons (toplayer state) v)))))
-      ((and (eq? (firstname state) name) (eq? (firstval state) #t))
-       (return (cons (cons (list name (box value)) (cdr (toplayer state))) (restof state))))
-      ((eq? (firstname state) name)
-       (begin (set-box! (firstval state) value) (return state)))
-      (else
-       (assign-cpt name
-                   value
-                   (cons (cdr (toplayer state)) (restof state))
-                   (lambda (v)
-                     (return (cons (cons (car (toplayer state)) (toplayer v)) (restof v)))))))))
+      ((null? state)                (error 'novar "Variable Not Declared"))
+      ((null? (toplayer state))     (assign-cpt name
+                                                value
+                                                (restof state)
+                                                (lambda (v) (return (cons (toplayer state) v)))))
+      ((eq? (firstname state) name) (begin (set-box! (firstval state) value) (return state)))
+      (else                         (assign-cpt name
+                                                value
+                                                (cons (cdr (toplayer state)) (restof state))
+                                                (lambda (v)
+                                                  (return (cons (cons (car (toplayer state))
+                                                                      (toplayer v))
+                                                                (restof v)))))))))
 
 ; removes a name-value pair from the state
 (define removebinding
