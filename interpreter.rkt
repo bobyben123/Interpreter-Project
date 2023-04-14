@@ -201,15 +201,17 @@
 (define bindparams
   (lambda (aparams fparams fstate cstate throw)
     (cond
-      ((null? fparams) fstate)
-      ((null? aparams) ('error 'missparams "Missing at least one input"))
-      (else            (bindparams (cdr aparams)
-                                   (cdr fparams)
-                                   (addbinding (car fparams)
-                                               (M_val (car aparams) cstate throw)
-                                               fstate)
-                                   cstate
-                                   throw)))))
+      ((and (null? fparams) (null? aparams)) fstate)
+      ((or (null? fparams) (null? aparams))  (error 'mismatch "Number of arguments does not match"))
+      (else                                  (bindparams (cdr aparams)
+                                                         (cdr fparams)
+                                                         (addbinding (car fparams)
+                                                                     (M_val (car aparams)
+                                                                            cstate
+                                                                            throw)
+                                                                     fstate)
+                                                         cstate
+                                                         throw)))))
 
 ;; MAPPINGS
 
