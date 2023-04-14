@@ -265,12 +265,12 @@
                   (lambda (v1)
                     (M_val-cpt (rightop expr) state (lambda (v2) (return (remainder v1 v2))) throw))
                   throw))
-      ((eq? #t (M_bool expr state throw)) (return 'true))     ; true
-      ((eq? #f (M_bool expr state throw)) (return 'false))    ; false
       ((eq? 'funcall (operator expr)) (return (funcall (getvar (lookup (leftop expr) state)) ; func
                                                        (param expr)
                                                        state
                                                        throw))) 
+      ((eq? #t (M_bool expr state throw)) (return 'true))     ; true
+      ((eq? #f (M_bool expr state throw)) (return 'false))    ; false
       (else (error 'unknownop "Bad Operator"))))) ; error
 
 ; M_val function for processing function calls
