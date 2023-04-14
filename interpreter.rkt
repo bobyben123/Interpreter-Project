@@ -447,14 +447,32 @@
 ; takes a function name and a list of actual parameters and returns the function's state
 (define funcstate
   (lambda (closure params state throw next)
-    (M_state (cons 'begin (getbod closure))
+    (M_state (removereturn (cons 'begin (getbod closure)))
              (bindparams params
                          (getformparams closure)
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
+                         
              (lambda (v) (next v))
              next)))
+
+;Removes return so that function will keep state
+(define removereturn
+  (lambda (closure)
+    (cond
+    ((null? closure) '()) ; base case: empty list
+    ((pair? closure)
+     (let ((head (car closure))
+           (tail (cdr closure)))
+       (cond
+         ((and (pair? head)
+               (eq? (car head) 'return)) ; if head matches pattern, skip it
+          (removereturn tail))
+         (else ; otherwise, recursively process head and tail
+          (cons (removereturn head)
+                (removereturn tail))))))
+    (else closure)))) ; atom: return it as is
 
 ; M_state function that deals with statement blocks
 (define block
