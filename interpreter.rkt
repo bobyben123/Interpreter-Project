@@ -16,7 +16,7 @@
 (define runmain
   (lambda (state return throw)
     (if (lookup 'main state)
-        (funcall (lookup 'main state) '() state throw)
+        (funcall (getvar (lookup 'main state)) '() state throw)
         (error 'noreturn "No value returned"))))
 
 ; evaluate a parse tree and return the final state
@@ -85,19 +85,20 @@
 (define assign-cpt
   (lambda (name value state return)
     (cond
-      ((null? state)                (error 'novar "Variable Not Declared"))
-      ((null? (toplayer state))     (assign-cpt name
-                                                value
-                                                (restof state)
-                                                (lambda (v) (return (cons (toplayer state) v)))))
-      ((eq? (firstname state) name) (begin (set-box! (firstval state) value) (return state)))
-      (else                         (assign-cpt name
-                                                value
-                                                (cons (cdr (toplayer state)) (restof state))
-                                                (lambda (v)
-                                                  (return (cons (cons (car (toplayer state))
-                                                                      (toplayer v))
-                                                                (restof v)))))))))
+      ((null? state)
+       (error 'novar "Variable Not Declared"))
+      ((null? (toplayer state))
+       (assign-cpt name value (restof state) (lambda (v) (return (cons (toplayer state) v)))))
+      ((and (eq? (firstname state) name) (eq? (firstval state) #t))
+       (return (cons (cons (list name (box value)) (cdr (toplayer state))) (restof state))))
+      ((eq? (firstname state) name)
+       (begin (set-box! (firstval state) value) (return state)))
+      (else
+       (assign-cpt name
+                   value
+                   (cons (cdr (toplayer state)) (restof state))
+                   (lambda (v)
+                     (return (cons (cons (car (toplayer state)) (toplayer v)) (restof v)))))))))
 
 ; removes a name-value pair from the state
 (define removebinding
@@ -136,7 +137,7 @@
     (cond
       ; #f if the variable has not been declared, #t if it has been declared but not initialized
       ((null? state)                #f)
-      ((eq? (firstname state) name) (unbox (firstval state)))
+      ((eq? (firstname state) name) (firstval state))
       ((null? (toplayer state))     (lookup name (restof state)))
       (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
 
@@ -146,7 +147,7 @@
     (cond
       ((eq? v #f) (error 'novar "Variable Not Declared"))
       ((eq? v #t) (error 'noval "Variable Not Initalized"))
-      (else       v))))
+      (else       (unbox v)))))
 
 ; adds an empty new layer to the top of the state
 (define addlayer
@@ -266,7 +267,7 @@
                   throw))
       ((eq? #t (M_bool expr state throw)) (return 'true))     ; true
       ((eq? #f (M_bool expr state throw)) (return 'false))    ; false
-      ((eq? 'funcall (operator expr)) (return (funcall (lookup (leftop expr) state) ; function call
+      ((eq? 'funcall (operator expr)) (return (funcall (getvar (lookup (leftop expr) state)) ; func
                                                        (param expr)
                                                        state
                                                        throw))) 
@@ -349,7 +350,7 @@
                                                                                          throw))))
                                                                       throw))
                                                         throw))
-      ((eq? 'funcall (operator expr))       (return (funcall (lookup (leftop expr) state)       ; fun
+      ((eq? 'funcall (operator expr))       (return (funcall (getvar (lookup (leftop expr) state))
                                                              (param expr)
                                                              state
                                                              throw)))
@@ -377,7 +378,7 @@
       ((null? expr)       (next state))
       ((not (pair? expr)) (next state))                                            ; not a statement
       ((and (eq? (operator expr) 'var) (null? (cddr expr)))                        ; declaration
-       (next (addname (leftop expr) (removebinding (leftop expr) state))))
+       (next (addname (leftop expr) state)))
       ((eq? (operator expr) 'var)                                                  ; var x = y
        (next (addbinding (leftop expr) (M_val (rightop expr) state throw) state)))
       ((and (eq? (operator expr) '=) (eq? #f (lookup (leftop expr) state)))        ; no variable
@@ -442,7 +443,7 @@
       ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
                                                          (makeclosure (restof expr) state)
                                                          state)))
-      ((eq? (operator expr) 'funcall)  (begin (funcall (lookup (leftop expr) state) ; function call
+      ((eq? (operator expr) 'funcall)  (begin (funcall (getvar (lookup (leftop expr) state))
                                                        (param expr)
                                                        state
                                                        throw)
