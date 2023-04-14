@@ -70,7 +70,7 @@
 ; adds a name (no value) to the state
 (define addname
   (lambda (name state)
-    (cons (cons (list name) (toplayer state)) (restof state))))
+    (cons (cons (list name (box #t)) (toplayer state)) (restof state))))
 
 ; adds a name-value pair to the state
 (define addbinding
@@ -443,11 +443,11 @@
       ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
                                                          (makeclosure (restof expr) state)
                                                          state)))
-      ((eq? (operator expr) 'funcall)  (begin (funcall (getvar (lookup (leftop expr) state))
-                                                       (param expr)
-                                                       state
-                                                       throw)
-                                              (next state)))
+      ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
+                                                             (param expr)
+                                                             state
+                                                             throw)
+                                                    state)))
       (else (next state)))))
       
 ; M_state function that deals with statement blocks
