@@ -270,6 +270,7 @@
     (cond
       ((null? fparams) fstate)
       ((null? aparams) ('error 'missparams "Missing at least one input"))
+      ((not(= (length aparams) (length fparams))) ('error 'missparams "Mismatched parameters"))
       (else            (bindparams (cdr aparams)
                                    (cdr fparams)
                                    (addbinding (car fparams)
