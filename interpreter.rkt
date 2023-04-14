@@ -453,7 +453,8 @@
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
-             (lambda (v s) (next s))
+                         
+             (lambda (v) (next v))
              next)))
 
 ;Removes return so that function will keep state
