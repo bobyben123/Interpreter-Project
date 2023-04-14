@@ -178,13 +178,21 @@
 ; takes a function closure and a state and returns the layer of the state where the function resides
 (define getfuncstate
   (lambda (closure state)
+    (getfuncstate-cpt closure state (lambda (v) v))))
+
+(define getfuncstate-cpt
+  (lambda (closure state return)
     (cond
       ((null? state)                                 (error 'nofunc "Function not defined"))
-      ((eq? (firstname state) (getfuncname closure)) state)
-      ((null? (toplayer state))                      (getfuncstate closure (removelayer state)))
-      (else                                          (getfuncstate closure
-                                                                   (cons (cdr (toplayer state))
-                                                                         (restof state)))))))
+      ((eq? (firstname state) (getfuncname closure)) (return state))
+      ((null? (toplayer state))                      (getfuncstate-cpt closure
+                                                                       (removelayer state)
+                                                                       return))
+      (else
+       (getfuncstate-cpt closure
+                         (cons (cdr (toplayer state)) (restof state))
+                         (lambda (v)
+                           (return (cons (cons (car (toplayer state)) (toplayer v)) (restof v)))))))))
 
 ;; MAPPINGS
 
@@ -424,9 +432,9 @@
       ((eq? (operator expr) 'continue) (continue state))                     ; continue
       ((eq? (operator expr) 'break)    (break state))                        ; break
       ((eq? (operator expr) 'throw)    (throw state (leftop expr)))          ; throw
-      ((eq? (operator expr) 'function) (addbinding (leftop expr)             ; function definition
-                                                   (makeclosure (restof expr) state)
-                                                   state))
+      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)       ; function definition
+                                                         (makeclosure (restof expr) state)
+                                                         state)))
       ((eq? (operator expr) 'funcall)  (funcstate (lookup (leftop expr) state)
                                                   (param expr)
                                                   state
@@ -445,7 +453,7 @@
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
-             (lambda(v) (next state))
+             (lambda (v) (next v))
              next)))
 
 ; M_state function that deals with statement blocks
