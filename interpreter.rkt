@@ -8,30 +8,28 @@
 ; takes a file name and interprets the program written on that file
 (define interpret
   (lambda (filename)
-    (call/cc
-     (lambda (k)
-       (evaluate (parser filename) (createstate) k)))))
+    (evaluate (parser filename) (createstate))))
 
 ; finds and runs the main function
 (define runmain
-  (lambda (state return throw)
+  (lambda (state throw)
     (if (lookup 'main state)
         (funcall (getvar (lookup 'main state)) '() state throw)
         (error 'noreturn "No value returned"))))
 
 ; evaluate a parse tree and return the final state
 (define evaluate
-  (lambda (tree state return)
+  (lambda (tree state)
     (if (null? tree)
-        (runmain state return (lambda (v e)
-                                (if (number? e)
-                                    (error 'thrownerror (number->string e))
-                                    (error 'thrownerror e))))
-        (evaluate (cdr tree) (M_state (car tree) state return (lambda (v e)
-                                                                (if (number? e)
-                                                                    (error 'thrownerror (number->string e))
-                                                                    (error 'thrownerror e))))
-                  return))))
+        (runmain state (lambda (v e)
+                         (if (number? e)
+                             (error 'thrownerror (number->string e))
+                             (error 'thrownerror e))))
+        (evaluate (cdr tree)
+                  (M_state (car tree) state (lambda (v e)
+                                              (if (number? e)
+                                                  (error 'thrownerror (number->string e))
+                                                  (error 'thrownerror e))))))))
 
 ;; HELPER FUNCTIONS
 
@@ -286,7 +284,7 @@
                          (addlayer (getfuncstate closure state))
                          state
                          throw)
-             (lambda (v) v) throw)))
+             throw)))
 
 ; maps an expression to a boolean value
 (define M_bool
@@ -363,10 +361,10 @@
 
 ; takes an expression and a state and returns a new state
 (define M_state
-  (lambda (expr state return throw)
+  (lambda (expr state throw)
     (M_state-cpt expr
                  state
-                 return
+                 (lambda (v) v)
                  (lambda (v) v)
                  (lambda (v) (error 'badcontinue "Invalid Continue"))
                  (lambda (v) (error 'badbreak "Invalid Break"))
@@ -427,7 +425,7 @@
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                          ; try-catch-cont
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                          ; try-catch-finally
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -439,7 +437,7 @@
       ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state throw)))  ; return
       ((eq? (operator expr) 'continue) (continue state))                            ; continue
       ((eq? (operator expr) 'break)    (break state))                               ; break
-      ((eq? (operator expr) 'throw)    (throw state (leftop expr)))                 ; throw
+      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state throw))) ; throw
       ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
                                                          (makeclosure (restof expr) state)
                                                          state)))
