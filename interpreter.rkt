@@ -263,13 +263,13 @@
       ((null? tree)
        (return '()))
       ((eq? (operator (car tree)) 'static-function)   ; static function
-       (getfuncs-cpt (cdr tree) state (lambda (v) (return (cons (makefunclosure (car tree)) v)))))
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (makefunclosure (car tree)) v)))))
       ((eq? (operator (car tree)) 'function)          ; instance function
-       (getfuncs-cpt (cdr tree) state (lambda (v) (return (cons (instfunclosure (car tree)) v)))))
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (instfunclosure (car tree)) v)))))
       ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
        (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (abstfunclosure (car tree)))))))
       (else
-       (getfuncs-cpt (cdr tree) state return)))))
+       (getfuncs-cpt (cdr tree) return)))))
 
 ; takes the body of a class definition and returns a list of the class variables
 (define getclassvars
