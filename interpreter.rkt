@@ -10,6 +10,8 @@
   (lambda (filename)
     (evaluate (parser filename) (createstate))))
 
+
+
 ; finds and runs the main function
 (define runmain
   (lambda (state return throw)
@@ -235,12 +237,12 @@
 ; takes a class definition and returns the class closure
 (define makeclassclosure
   (lambda (expr state)
-    (list (getname expr)
+    (cons (list (getname expr)
           (getsuper expr)
-          (getfuncs (getbody expr) state)
+          (getfuncs (getbody expr))
           (getclassvars (getbody expr))
           (getinstvars (getbody expr))
-          (getconstr (getbody expr) state))))
+          (getconstr (getbody expr) state)) state)))
 
 ; takes a class definition and returns the class name
 (define getname cadr)
@@ -255,7 +257,7 @@
 ; functions
 (define getfuncs
   (lambda (tree)
-    (getfuncs-cpt tree (lambda (v) v))))
+    (getfuncs-cpt tree(lambda (v) v))))
 
 (define getfuncs-cpt
   (lambda (tree return)
@@ -575,6 +577,7 @@
                                                              return
                                                              throw)
                                                     state)))
+      ((eq? (operator expr ) 'class)  (next (makeclassclosure expr state)))
       (else (next state)))))
       
 ; M_state function that deals with statement blocks
