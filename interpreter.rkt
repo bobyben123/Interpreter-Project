@@ -19,14 +19,26 @@
       (else (findClass classname (restof state))))))
 
 
-; finds and runs the main function of a class
+; finds and runs the main function of a given class
 (define runmain
   (lambda (state return throw classname)
     (if (findClass classname state)
-        (if (lookup 'main (findClass classname state))
-            (funcall (getvar (lookup 'main (findClass classname state))) '() state return throw)
+        (if (findmain (getbod (findClass classname state)))
+            (funcall (getvar (findmain (getbod(findClass classname state)))) '() state return throw)
             (error 'noreturn "No value returned"))
         (error 'noclass "Class not found"))))
+
+;helps find and return the main function of a class given the class body
+(define findmain
+  (lambda (closure)
+    (cond
+      ((null? closure) #f)
+      ((and (list? (car closure))
+            (eq? 'static-function (caar closure))
+            (eq? 'main (cadar closure)))
+       (car closure))
+      (else (findmain (cdr closure))))))
+      
 
 ; evaluate a parse tree and return the final state
 (define evaluate
