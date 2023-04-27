@@ -162,9 +162,21 @@
 ;; FUNCTION-RELATED HELPER FUNCTIONS
 
 ; takes a function definition and a state and returns the function's closure
-(define makeclosure
-  (lambda (func state)
+(define makefunclosure
+  (lambda (func)
     (list (getfuncname func) (getformparams func) (getbod func))))
+
+; takes an instance function definition and a state and returns the function's closure with 'this
+; added to the parameters
+(define instfunclosure
+  (lambda (func)
+    (list (getfuncname func) (cons 'this (getformparams func)) (getbod func))))
+
+; takes an abstract function definition and a state and returns the function's closure with an empty
+; body
+(define abstfunclosure
+  (lambda (func)
+    (list (getfuncname func) (getformparams func) '())))
 
 ; retrieves a function's name from its definition or its closure
 (define getfuncname car)
@@ -217,6 +229,86 @@
                                                          cstate
                                                          return
                                                          throw)))))
+
+;; CLASS-RELATED HELPER FUNCTIONS
+
+; takes a class definition and returns the class closure
+(define makeclassclosure
+  (lambda (expr state)
+    (list (getname expr)
+          (getsuper expr)
+          (getfuncs (getbody expr) state)
+          (getclassvars (getbody expr))
+          (getinstvars (getbody expr))
+          (getconstr (getbody expr) state))))
+
+; takes a class definition and returns the class name
+(define getname cadr)
+
+; takes a class definition and returns the class superclass
+(define getsuper caddr)
+
+; takes a class definition and returns the class body
+(define getbody cadddr)
+
+; take the body of a class definition and the state and return a list of the closures of the class
+; functions
+(define getfuncs
+  (lambda (tree)
+    (getfuncs-cpt tree (lambda (v) v))))
+
+(define getfuncs-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)
+       (return '()))
+      ((eq? (operator (car tree)) 'static-function)   ; static function
+       (getfuncs-cpt (cdr tree) state (lambda (v) (return (cons (makefunclosure (car tree)) v)))))
+      ((eq? (operator (car tree)) 'function)          ; instance function
+       (getfuncs-cpt (cdr tree) state (lambda (v) (return (cons (instfunclosure (car tree)) v)))))
+      ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (abstfunclosure (car tree)))))))
+      (else
+       (getfuncs-cpt (cdr tree) state return)))))
+
+; takes the body of a class definition and returns a list of the class variables
+(define getclassvars
+  (lambda (tree)
+    (getclassvars-cpt tree (lambda (v) v))))
+
+(define getclassvars-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)                            (return '()))
+      ((eq? (operator (car tree)) 'static-var) (getclassvars-cpt (cdr tree)
+                                                                 (lambda (v)
+                                                                   (return
+                                                                    (cons (list (leftop (car tree))
+                                                                                (rightop (car tree)))
+                                                                          v)))))
+      (else                                    (getclassvars-cpt (cdr tree) return)))))
+
+; takes the body of a class definition and returns a list of the instance variable names
+(define getinstvars
+  (lambda (tree)
+    (getinstvars-cpt tree (lambda (v) v))))
+
+(define getinstvars-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)                     (return '()))
+      ((eq? (operator (car tree)) 'var) (getclassvars-cpt (cdr tree)
+                                                          (lambda (v)
+                                                            (return (cons (leftop (car tree)) v)))))
+      (else                             (getinstvars-cpt (cdr tree) return)))))
+
+; takes the body of a class definition and the state and returns the closure of the constructor
+(define getconstr
+  (lambda (tree state)
+    (cond
+      ((null? tree)                             '())
+      ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)))
+      (else                                     (getconstr (cdr tree) state)))))
 
 ;; MAPPINGS
 
@@ -475,7 +567,7 @@
       ((eq? (operator expr) 'break)    (break state))                               ; break
       ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
       ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
-                                                         (makeclosure (restof expr) state)
+                                                         (makefunclosure (restof expr))
                                                          state)))
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
                                                              (param expr)
