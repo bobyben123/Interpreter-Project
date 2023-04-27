@@ -7,32 +7,41 @@
 
 ; takes a file name and interprets the program written on that file
 (define interpret
-  (lambda (filename)
-    (evaluate (parser filename) (createstate))))
+  (lambda (filename classname)
+    (evaluate (parser filename) (createstate) classname)))
+
+; searches the state for a class closure that matches the classname returns the closure if found else false
+(define findClass
+  (lambda (classname state)
+    (cond
+      ((null? state) #f)
+      ((symbol=? (getclassname state) (string->symbol classname)) (toplayer state))
+      (else (findClass classname (restof state))))))
 
 
-
-; finds and runs the main function
+; finds and runs the main function of a class
 (define runmain
-  (lambda (state return throw)
-    (if (lookup 'main state)
-        (funcall (getvar (lookup 'main state)) '() state return throw)
-        (error 'noreturn "No value returned"))))
+  (lambda (state return throw classname)
+    (if (findClass classname state)
+        (if (lookup 'main (findClass classname state))
+            (funcall (getvar (lookup 'main (findClass classname state))) '() state return throw)
+            (error 'noreturn "No value returned"))
+        (error 'noclass "Class not found"))))
 
 ; evaluate a parse tree and return the final state
 (define evaluate
-  (lambda (tree state)
+  (lambda (tree state classname)
     (if (null? tree)
         (runmain state (lambda (v) v) (lambda (v e)
                                         (if (number? e)
                                             (error 'thrownerror (number->string e))
-                                            (error 'thrownerror e))))
+                                            (error 'thrownerror e))) classname)
         (evaluate (cdr tree)
                   (M_state (car tree) state  (lambda (v) v) (lambda (v e)
                                                               (if (number? e)
                                                                   (error 'thrownerror
                                                                          (number->string e))
-                                                                  (error 'thrownerror e))))))))
+                                                                  (error 'thrownerror e)))) classname))))
 
 ;; HELPER FUNCTIONS
 
@@ -253,6 +262,9 @@
 ; takes a class definition and returns the class body
 (define getbody cadddr)
 
+; takes a class in the state and returns the name
+(define getclassname caar)
+
 ; take the body of a class definition and the state and return a list of the closures of the class
 ; functions
 (define getfuncs
@@ -299,7 +311,7 @@
   (lambda (tree return)
     (cond
       ((null? tree)                     (return '()))
-      ((eq? (operator (car tree)) 'var) (getclassvars-cpt (cdr tree)
+      ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
                                                           (lambda (v)
                                                             (return (cons (leftop (car tree)) v)))))
       (else                             (getinstvars-cpt (cdr tree) return)))))
