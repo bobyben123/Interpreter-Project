@@ -7,30 +7,53 @@
 
 ; takes a file name and interprets the program written on that file
 (define interpret
-  (lambda (filename)
-    (evaluate (parser filename) (createstate))))
+  (lambda (filename classname)
+    (evaluate (parser filename) (createstate) classname)))
 
-; finds and runs the main function
+; searches the state for a class closure that matches the classname returns the closure if found else
+; false
+(define findClass
+  (lambda (classname state)
+    (lookup (string->symbol classname) state)))
+
+; finds and runs the main function of a given class
 (define runmain
-  (lambda (state return throw)
-    (if (lookup 'main state)
-        (funcall (getvar (lookup 'main state)) '() state return throw)
-        (error 'noreturn "No value returned"))))
+  (lambda (classname state return throw)
+    (funcall (findmain (getfuncs (getclassbody (getvar (lookup classname state)))))
+             '()
+             state
+             return
+             throw)))
+
+;helps find and return the closure of the main function of a class given its function list
+(define findmain
+  (lambda (lis)
+    (cond
+      ((null? lis)                         #f)
+      ((eq? (getfuncname (car lis)) 'main) (car lis))
+      (else                                (findmain (cdr lis))))))
+      
 
 ; evaluate a parse tree and return the final state
 (define evaluate
-  (lambda (tree state)
+  (lambda (tree state classname)
     (if (null? tree)
-        (runmain state (lambda (v) v) (lambda (v e)
-                                        (if (number? e)
-                                            (error 'thrownerror (number->string e))
-                                            (error 'thrownerror e))))
+        (runmain (string->symbol classname)
+                 state
+                 (lambda (v) v)
+                 (lambda (v e)
+                   (if (number? e)
+                       (error 'thrownerror (number->string e))
+                       (error 'thrownerror e))))
         (evaluate (cdr tree)
-                  (M_state (car tree) state  (lambda (v) v) (lambda (v e)
-                                                              (if (number? e)
-                                                                  (error 'thrownerror
-                                                                         (number->string e))
-                                                                  (error 'thrownerror e))))))))
+                  (M_state (car tree)
+                           state
+                           (lambda (v) v)
+                           (lambda (v e)
+                             (if (number? e)
+                                 (error 'thrownerror (number->string e))
+                                 (error 'thrownerror e))))
+                  classname))))
 
 ;; HELPER FUNCTIONS
 
@@ -162,9 +185,21 @@
 ;; FUNCTION-RELATED HELPER FUNCTIONS
 
 ; takes a function definition and a state and returns the function's closure
-(define makeclosure
-  (lambda (func state)
-    (list (getfuncname func) (getformparams func) (getbod func))))
+(define makefunclosure
+  (lambda (func)
+    (list (getfuncname func) (getformparams func) (getfuncbody func))))
+
+; takes an instance function definition and a state and returns the function's closure with 'this
+; added to the parameters
+(define instfunclosure
+  (lambda (func)
+    (list (getfuncname func) (cons 'this (getformparams func)) (getfuncbody func))))
+
+; takes an abstract function definition and a state and returns the function's closure with an empty
+; body
+(define abstfunclosure
+  (lambda (func)
+    (list (getfuncname func) (getformparams func) '())))
 
 ; retrieves a function's name from its definition or its closure
 (define getfuncname car)
@@ -173,7 +208,7 @@
 (define getformparams cadr)
 
 ; retrieves a function's body from its definition or its closure
-(define getbod caddr)
+(define getfuncbody caddr)
 
 ; takes a function closure and a state and returns the layer of the state where the function resides
 (define getfuncstate
@@ -217,6 +252,110 @@
                                                          cstate
                                                          return
                                                          throw)))))
+
+;; CLASS-RELATED HELPER FUNCTIONS
+
+; takes a class definition and returns the class closure
+(define makeclassclosure
+  (lambda (expr)
+    (list (getclassname expr)
+          (getsuper expr)
+          (getfuncs (getclassbody expr))
+          (getclassvars (getclassbody expr))
+          (getinstvars (getclassbody expr))
+          (getconstr (getclassbody expr)))))
+
+; takes a class definition and returns the class name
+(define getclassname car)
+
+; takes a class definition and returns the class superclass
+(define getsuper cadr)
+
+; takes a class definition and returns the class body
+(define getclassbody caddr)
+
+; take the body of a class definition and the state and return a list of the closures of the class
+; functions
+(define getfuncs
+  (lambda (tree)
+    (getfuncs-cpt tree (lambda (v) v))))
+
+(define getfuncs-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)
+       (return '()))
+      ((eq? (operator (car tree)) 'static-function)   ; static function
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (makefunclosure (restof (car tree)))
+                                           v)))))
+      ((eq? (operator (car tree)) 'function)          ; instance function
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (instfunclosure (restof (car tree)))
+                                           v)))))
+      ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (abstfunclosure (restof (car tree)))
+                                           v)))))
+      (else
+       (getfuncs-cpt (cdr tree) return)))))
+
+; takes the body of a class definition and returns a list of the class variables
+(define getclassvars
+  (lambda (tree)
+    (getclassvars-cpt tree (lambda (v) v))))
+
+(define getclassvars-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)                            (return '()))
+      ((eq? (operator (car tree)) 'static-var) (getclassvars-cpt (cdr tree)
+                                                                 (lambda (v)
+                                                                   (return
+                                                                    (cons (list (leftop (car tree))
+                                                                                (rightop (car tree)))
+                                                                          v)))))
+      (else                                    (getclassvars-cpt (cdr tree) return)))))
+
+; takes the body of a class definition and returns a list of the instance variable names
+(define getinstvars
+  (lambda (tree)
+    (getinstvars-cpt tree (lambda (v) v))))
+
+(define getinstvars-cpt
+  (lambda (tree return)
+    (cond
+      ((null? tree)                     (return '()))
+      ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
+                                                         (lambda (v)
+                                                           (return (cons (leftop (car tree)) v)))))
+      (else                             (getinstvars-cpt (cdr tree) return)))))
+
+; takes the body of a class definition and the state and returns the closure of the constructor
+(define getconstr
+  (lambda (tree)
+    (cond
+      ((null? tree)                             '())
+      ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)))
+      (else                                     (getconstr (cdr tree))))))
+
+;; INSTANCE-RELATED HELPER FUNCTIONS
+
+; takes a run time type from a constructor call (e.g. (new A)) and returns the instance closure
+(define makeinstclosure
+  (lambda (type)
+    (list type (getinstvals type))))
+
+; takes a run time type and returns the values of the instance variables
+(define getinstvals
+  (lambda (expr)
+    expr))
 
 ;; MAPPINGS
 
@@ -295,10 +434,10 @@
       (else (error 'unknownop "Bad Operator"))))) ; error
 
 ; M_val function for processing function calls
-; takes a function name and a list of actual parameters and returns the function's return value
+; takes a function closure and a list of actual parameters and returns the function's return value
 (define funcall
   (lambda (closure params state return throw)
-    (M_state (cons 'begin (getbod closure))
+    (M_state (cons 'begin (getfuncbody closure))
              (bindparams params
                          (getformparams closure)
                          (addlayer (getfuncstate closure state))
@@ -461,7 +600,7 @@
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                          ; try-catch-finally
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                         ; try-catch-finally
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -473,9 +612,9 @@
       ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw))) ; return
       ((eq? (operator expr) 'continue) (continue state))                            ; continue
       ((eq? (operator expr) 'break)    (break state))                               ; break
-      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
-      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
-                                                         (makeclosure (restof expr) state)
+      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw)));throw
+      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
+                                                         (makefunclosure (restof expr))
                                                          state)))
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
                                                              (param expr)
@@ -483,6 +622,9 @@
                                                              return
                                                              throw)
                                                     state)))
+      ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
+                                                        (makeclassclosure (restof expr))
+                                                        state)))
       (else (next state)))))
       
 ; M_state function that deals with statement blocks
