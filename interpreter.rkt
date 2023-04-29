@@ -14,45 +14,45 @@
 ; false
 (define findClass
   (lambda (classname state)
-    (cond
-      ((null? state)                                              #f)
-      ((symbol=? (getclassname state) (string->symbol classname)) (toplayer state))
-      (else                                                       (findClass classname
-                                                                             (restof state))))))
-
+    (lookup (string->symbol classname) state)))
 
 ; finds and runs the main function of a given class
-(define runmain
-  (lambda (state return throw classname)
-    (if (findClass classname state)
-        (if (findmain (getbod (findClass classname state)))
-            (funcall (getvar (findmain (getbod (findClass classname state)))) '() state return throw)
-            (error 'noreturn "No value returned"))
-        (error 'noclass "Class not found"))))
+;(define runmain
+;  (lambda (state return throw classname)
+;    (if (findClass classname state)
+;        (if (findmain (getfuncbody (findClass classname state)))
+;            (funcall (getvar (findmain (getfuncbody (findClass classname state)))) '() state return throw)
+;            (error 'noreturn "No value returned"))
+;        (error 'noclass "Class not found"))))
 
-;helps find and return the main function of a class given the class body
+(define runmain
+  (lambda (classname state return throw)
+    (funcall (findmain (getfuncs (getclassbody (getvar (lookup classname state)))))
+             '()
+             state
+             return
+             throw)))
+
+;helps find and return the closure of the main function of a class given its function list
 (define findmain
-  (lambda (closure)
+  (lambda (lis)
     (cond
-      ((null? closure) #f)
-      ((and (list? (car closure))
-            (eq? 'static-function (caar closure))
-            (eq? 'main (cadar closure)))
-       (car closure))
-      (else (findmain (cdr closure))))))
+      ((null? lis)                         #f)
+      ((eq? (getfuncname (car lis)) 'main) (car lis))
+      (else                                (findmain (cdr lis))))))
       
 
 ; evaluate a parse tree and return the final state
 (define evaluate
   (lambda (tree state classname)
     (if (null? tree)
-        (runmain state
+        (runmain (string->symbol classname)
+                 state
                  (lambda (v) v)
                  (lambda (v e)
                    (if (number? e)
                        (error 'thrownerror (number->string e))
-                       (error 'thrownerror e)))
-                 classname)
+                       (error 'thrownerror e))))
         (evaluate (cdr tree)
                   (M_state (car tree)
                            state
@@ -195,13 +195,13 @@
 ; takes a function definition and a state and returns the function's closure
 (define makefunclosure
   (lambda (func)
-    (list (getfuncname func) (getformparams func) (getbod func))))
+    (list (getfuncname func) (getformparams func) (getfuncbody func))))
 
 ; takes an instance function definition and a state and returns the function's closure with 'this
 ; added to the parameters
 (define instfunclosure
   (lambda (func)
-    (list (getfuncname func) (cons 'this (getformparams func)) (getbod func))))
+    (list (getfuncname func) (cons 'this (getformparams func)) (getfuncbody func))))
 
 ; takes an abstract function definition and a state and returns the function's closure with an empty
 ; body
@@ -216,7 +216,7 @@
 (define getformparams cadr)
 
 ; retrieves a function's body from its definition or its closure
-(define getbod caddr)
+(define getfuncbody caddr)
 
 ; takes a function closure and a state and returns the layer of the state where the function resides
 (define getfuncstate
@@ -265,31 +265,28 @@
 
 ; takes a class definition and returns the class closure
 (define makeclassclosure
-  (lambda (expr state)
-    (cons (list (getname expr)
-                (getsuper expr)
-                (getfuncs (getbody expr))
-                (getclassvars (getbody expr))
-                (getinstvars (getbody expr))
-                (getconstr (getbody expr) state)) state)))
+  (lambda (expr)
+    (list (getclassname expr)
+          (getsuper expr)
+          (getfuncs (getclassbody expr))
+          (getclassvars (getclassbody expr))
+          (getinstvars (getclassbody expr))
+          (getconstr (getclassbody expr)))))
 
 ; takes a class definition and returns the class name
-(define getname cadr)
+(define getclassname car)
 
 ; takes a class definition and returns the class superclass
-(define getsuper caddr)
+(define getsuper cadr)
 
 ; takes a class definition and returns the class body
-(define getbody cdddr)
-
-; takes a class in the state and returns the name
-(define getclassname caar)
+(define getclassbody caddr)
 
 ; take the body of a class definition and the state and return a list of the closures of the class
 ; functions
 (define getfuncs
   (lambda (tree)
-    (getfuncs-cpt tree(lambda (v) v))))
+    (getfuncs-cpt tree (lambda (v) v))))
 
 (define getfuncs-cpt
   (lambda (tree return)
@@ -297,11 +294,11 @@
       ((null? tree)
        (return '()))
       ((eq? (operator (car tree)) 'static-function)   ; static function
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (makefunclosure (car tree)) v)))))
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (makefunclosure (restof (car tree))) v)))))
       ((eq? (operator (car tree)) 'function)          ; instance function
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (instfunclosure (car tree)) v)))))
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (instfunclosure (restof (car tree))) v)))))
       ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (abstfunclosure (car tree)))))))
+       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (abstfunclosure (restof (car tree))) v)))))
       (else
        (getfuncs-cpt (cdr tree) return)))))
 
@@ -338,11 +335,11 @@
 
 ; takes the body of a class definition and the state and returns the closure of the constructor
 (define getconstr
-  (lambda (tree state)
+  (lambda (tree)
     (cond
       ((null? tree)                             '())
       ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)))
-      (else                                     (getconstr (cdr tree) state)))))
+      (else                                     (getconstr (cdr tree))))))
 
 ;; MAPPINGS
 
@@ -421,10 +418,10 @@
       (else (error 'unknownop "Bad Operator"))))) ; error
 
 ; M_val function for processing function calls
-; takes a function name and a list of actual parameters and returns the function's return value
+; takes a function closure and a list of actual parameters and returns the function's return value
 (define funcall
   (lambda (closure params state return throw)
-    (M_state (cons 'begin (getbod closure))
+    (M_state (cons 'begin (getfuncbody closure))
              (bindparams params
                          (getformparams closure)
                          (addlayer (getfuncstate closure state))
@@ -610,7 +607,7 @@
                                                              throw)
                                                     state)))
       ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
-                                                        (makeclassclosure (restof expr) state)
+                                                        (makeclassclosure (restof expr))
                                                         state)))
       (else (next state)))))
       
