@@ -17,14 +17,6 @@
     (lookup (string->symbol classname) state)))
 
 ; finds and runs the main function of a given class
-;(define runmain
-;  (lambda (state return throw classname)
-;    (if (findClass classname state)
-;        (if (findmain (getfuncbody (findClass classname state)))
-;            (funcall (getvar (findmain (getfuncbody (findClass classname state)))) '() state return throw)
-;            (error 'noreturn "No value returned"))
-;        (error 'noclass "Class not found"))))
-
 (define runmain
   (lambda (classname state return throw)
     (funcall (findmain (getfuncs (getclassbody (getvar (lookup classname state)))))
@@ -294,11 +286,23 @@
       ((null? tree)
        (return '()))
       ((eq? (operator (car tree)) 'static-function)   ; static function
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (makefunclosure (restof (car tree))) v)))))
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (makefunclosure (restof (car tree)))
+                                           v)))))
       ((eq? (operator (car tree)) 'function)          ; instance function
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (instfunclosure (restof (car tree))) v)))))
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (instfunclosure (restof (car tree)))
+                                           v)))))
       ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
-       (getfuncs-cpt (cdr tree) (lambda (v) (return (cons (abstfunclosure (restof (car tree))) v)))))
+       (getfuncs-cpt (cdr tree)
+                     (lambda (v)
+                       (return (addbinding (getfuncname (restof (car tree)))
+                                           (abstfunclosure (restof (car tree)))
+                                           v)))))
       (else
        (getfuncs-cpt (cdr tree) return)))))
 
@@ -340,6 +344,18 @@
       ((null? tree)                             '())
       ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)))
       (else                                     (getconstr (cdr tree))))))
+
+;; INSTANCE-RELATED HELPER FUNCTIONS
+
+; takes a run time type from a constructor call (e.g. (new A)) and returns the instance closure
+(define makeinstclosure
+  (lambda (type)
+    (list type (getinstvals type))))
+
+; takes a run time type and returns the values of the instance variables
+(define getinstvals
+  (lambda (expr)
+    expr))
 
 ;; MAPPINGS
 
