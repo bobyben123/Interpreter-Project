@@ -10,13 +10,15 @@
   (lambda (filename classname)
     (evaluate (parser filename) (createstate) classname)))
 
-; searches the state for a class closure that matches the classname returns the closure if found else false
+; searches the state for a class closure that matches the classname returns the closure if found else
+; false
 (define findClass
   (lambda (classname state)
     (cond
-      ((null? state) #f)
+      ((null? state)                                              #f)
       ((symbol=? (getclassname state) (string->symbol classname)) (toplayer state))
-      (else (findClass classname (restof state))))))
+      (else                                                       (findClass classname
+                                                                             (restof state))))))
 
 
 ; finds and runs the main function of a given class
@@ -24,7 +26,7 @@
   (lambda (state return throw classname)
     (if (findClass classname state)
         (if (findmain (getbod (findClass classname state)))
-            (funcall (getvar (findmain (getbod(findClass classname state)))) '() state return throw)
+            (funcall (getvar (findmain (getbod (findClass classname state)))) '() state return throw)
             (error 'noreturn "No value returned"))
         (error 'noclass "Class not found"))))
 
@@ -44,16 +46,22 @@
 (define evaluate
   (lambda (tree state classname)
     (if (null? tree)
-        (runmain state (lambda (v) v) (lambda (v e)
-                                        (if (number? e)
-                                            (error 'thrownerror (number->string e))
-                                            (error 'thrownerror e))) classname)
+        (runmain state
+                 (lambda (v) v)
+                 (lambda (v e)
+                   (if (number? e)
+                       (error 'thrownerror (number->string e))
+                       (error 'thrownerror e)))
+                 classname)
         (evaluate (cdr tree)
-                  (M_state (car tree) state  (lambda (v) v) (lambda (v e)
-                                                              (if (number? e)
-                                                                  (error 'thrownerror
-                                                                         (number->string e))
-                                                                  (error 'thrownerror e)))) classname))))
+                  (M_state (car tree)
+                           state
+                           (lambda (v) v)
+                           (lambda (v e)
+                             (if (number? e)
+                                 (error 'thrownerror (number->string e))
+                                 (error 'thrownerror e))))
+                  classname))))
 
 ;; HELPER FUNCTIONS
 
@@ -259,11 +267,11 @@
 (define makeclassclosure
   (lambda (expr state)
     (cons (list (getname expr)
-          (getsuper expr)
-          (getfuncs (getbody expr))
-          (getclassvars (getbody expr))
-          (getinstvars (getbody expr))
-          (getconstr (getbody expr) state)) state)))
+                (getsuper expr)
+                (getfuncs (getbody expr))
+                (getclassvars (getbody expr))
+                (getinstvars (getbody expr))
+                (getconstr (getbody expr) state)) state)))
 
 ; takes a class definition and returns the class name
 (define getname cadr)
@@ -272,7 +280,7 @@
 (define getsuper caddr)
 
 ; takes a class definition and returns the class body
-(define getbody cadddr)
+(define getbody cdddr)
 
 ; takes a class in the state and returns the name
 (define getclassname caar)
@@ -324,8 +332,8 @@
     (cond
       ((null? tree)                     (return '()))
       ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
-                                                          (lambda (v)
-                                                            (return (cons (leftop (car tree)) v)))))
+                                                         (lambda (v)
+                                                           (return (cons (leftop (car tree)) v)))))
       (else                             (getinstvars-cpt (cdr tree) return)))))
 
 ; takes the body of a class definition and the state and returns the closure of the constructor
@@ -579,7 +587,7 @@
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                          ; try-catch-finally
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                         ; try-catch-finally
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -591,8 +599,8 @@
       ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw))) ; return
       ((eq? (operator expr) 'continue) (continue state))                            ; continue
       ((eq? (operator expr) 'break)    (break state))                               ; break
-      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
-      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func definition
+      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw)));throw
+      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
                                                          (makefunclosure (restof expr))
                                                          state)))
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
@@ -601,7 +609,9 @@
                                                              return
                                                              throw)
                                                     state)))
-      ((eq? (operator expr ) 'class)  (next (makeclassclosure expr state)))
+      ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
+                                                        (makeclassclosure (restof expr) state)
+                                                        state)))
       (else (next state)))))
       
 ; M_state function that deals with statement blocks
