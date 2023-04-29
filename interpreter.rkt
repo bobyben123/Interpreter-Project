@@ -384,13 +384,13 @@
 
 ; takes a run time type from a constructor call (e.g. (new A)) and returns the instance closure
 (define makeinstclosure
-  (lambda (type state)
-    (list type (getobjinstvals type))))
+  (lambda (superclosure)
+    (list (getclassname superclosure) (getobjinstvals superclosure))))
 
 ; takes a run time type and returns the values of the instance variables
 (define getobjinstvals
-  (lambda (type state)
-    (reverse (getvalsfromclos (getvar (lookup type state))))))
+  (lambda (superclosure state)
+    (reverse (getvalsfromclos superclosure))))
 
 ;; MAPPINGS
 
