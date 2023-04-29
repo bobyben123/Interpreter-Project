@@ -263,6 +263,7 @@
           (getfuncs (getclassbody expr) (getsuper expr) state)
           (getclassvars (getclassbody expr))
           (getinstvars (getclassbody expr))
+          (getclassinstvals (getclassbody expr) (getsuper expr) state)
           (getconstr (getclassbody expr)))))
 
 ; takes a class definition/closure and returns the class name
@@ -316,7 +317,6 @@
 
 ; takes a class closure and gets its function list
 (define getfuncsfromclosure caddr)
-    
 
 ; takes the body of a class definition and returns a list of the class variables
 (define getclassvars
@@ -327,12 +327,12 @@
   (lambda (tree return)
     (cond
       ((null? tree)                            (return '()))
-      ((eq? (operator (car tree)) 'static-var) (getclassvars-cpt (cdr tree)
+      ((eq? (operator (car tree)) 'static-var) (return (getclassvars-cpt (cdr tree)
                                                                  (lambda (v)
                                                                    (return
                                                                     (cons (list (leftop (car tree))
                                                                                 (rightop (car tree)))
-                                                                          v)))))
+                                                                          v))))))
       (else                                    (getclassvars-cpt (cdr tree) return)))))
 
 ; takes the body of a class definition and returns a list of the instance variable names
@@ -349,6 +349,29 @@
                                                            (return (cons (leftop (car tree)) v)))))
       (else                             (getinstvars-cpt (cdr tree) return)))))
 
+; takes the body of a class definition and returns a list of the instance variable values
+(define getclassinstvals
+  (lambda (tree super state)
+    (getclassinstvals-cpt tree super state (lambda (v) v))))
+
+(define getclassinstvals-cpt
+  (lambda (tree super state return)
+    (cond
+      ((and (null? super) (null? tree)) (return '()))
+      ((null? tree)                     (return (getvalsfromclos (getvar (lookup super state)))))
+      ((eq? (operator (car tree)) 'var) (getclassinstvals-cpt (cdr tree)
+                                                              super
+                                                              state
+                                                              (lambda (v)
+                                                                (return (cons (rightop (car tree))
+                                                                              v)))))
+      (else                             (getclassinstvals-cpt (cdr tree) super state return)))))
+
+; takes a class closure and returns the list of instance variable values
+(define getvalsfromclos
+  (lambda (closure)
+    (car (cdr (cddddr closure)))))
+  
 ; takes the body of a class definition and the state and returns the closure of the constructor
 (define getconstr
   (lambda (tree)
@@ -362,10 +385,10 @@
 ; takes a run time type from a constructor call (e.g. (new A)) and returns the instance closure
 (define makeinstclosure
   (lambda (type)
-    (list type (getinstvals type))))
+    (list type (getobjinstvals type))))
 
 ; takes a run time type and returns the values of the instance variables
-(define getinstvals
+(define getobjinstvals
   (lambda (expr)
     expr))
 
