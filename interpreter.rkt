@@ -161,7 +161,13 @@
       ((null? state)                #f)
       ((eq? (firstname state) name) (firstval state))
       ((null? (toplayer state))     (lookup name (restof state)))
+      ((and (pair? name)(eq? (operator name) 'dot))  (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
       (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
+
+; given an instance closure name and a state, find the class closure in the state
+(define getclosure
+  (lambda (name state)
+    (findClass (car (unbox(lookup (leftop name) state))) state)))
 
 ; takes the output of lookup and returns the variable's value or the appropriate error
 (define getvar
@@ -238,6 +244,7 @@
   (lambda (aparams fparams fstate cstate return throw)
     (cond
       ((and (null? fparams) (null? aparams)) fstate)
+      ((eq? (car fparams) 'this) (bindparams aparams (cdr fparams) fstate cstate return throw))
       ((or (null? fparams) (null? aparams))  (error 'mismatch "Number of arguments does not match"))
       (else                                  (bindparams (cdr aparams)
                                                          (cdr fparams)
@@ -468,6 +475,7 @@
        (next 'true))
       ((eq? #f (M_bool expr state return throw))              ; false
        (next 'false))
+      ((eq? (operator expr ) 'dot)    (next (lookup(rightop expr) (lookup (leftop expr)state))))
       (else                                                   ; error
        (error 'unknownop "Bad Operator")))))
 
@@ -663,8 +671,17 @@
       ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
                                                         (makeclassclosure (restof expr) state)
                                                         state)))
+      ((eq? (operator expr ) 'dot)    (next (begin (handledot(lookup(leftop expr) state)(rightop expr)))))
       (else (next state)))))
-      
+
+; Helps the dot operator figure out what the right operator is given the instance and state
+; If it's a method than funcall is used, else the value is retrieved
+(define handledot
+  (lambda (instance expr)
+    (if (lookup expr instance) (funcall (lookup expr instance))
+        (error 'thrownerror "could not find expression"))))
+
+
 ; M_state function that deals with statement blocks
 (define block
   (lambda (tree state return next continue break throw)
