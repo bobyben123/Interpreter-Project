@@ -14,12 +14,12 @@
 ; false
 (define findClass
   (lambda (classname state)
-    (lookup (string->symbol classname) state)))
+    (getvar (lookup classname state))))
 
 ; finds and runs the main function of a given class
 (define runmain
   (lambda (classname state return throw)
-    (funcall (findmain (getfuncs (getclassbody (getvar (lookup classname state)))))
+    (funcall (findmain (getfuncsfromclosure (findClass classname state)))
              '()
              state
              return
@@ -28,10 +28,7 @@
 ;helps find and return the closure of the main function of a class given its function list
 (define findmain
   (lambda (lis)
-    (cond
-      ((null? lis)                         #f)
-      ((eq? (getfuncname (car lis)) 'main) (car lis))
-      (else                                (findmain (cdr lis))))))
+    (getvar (lookup 'main lis))))
       
 
 ; evaluate a parse tree and return the final state
@@ -164,7 +161,13 @@
       ((null? state)                #f)
       ((eq? (firstname state) name) (firstval state))
       ((null? (toplayer state))     (lookup name (restof state)))
+      ((and (pair? name)(eq? (operator name) 'dot))  (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
       (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
+
+; given an instance closure name and a state, find the class closure in the state
+(define getclosure
+  (lambda (name state)
+    (findClass (car (unbox(lookup (leftop name) state))) state)))
 
 ; takes the output of lookup and returns the variable's value or the appropriate error
 (define getvar
@@ -186,20 +189,20 @@
 
 ; takes a function definition and a state and returns the function's closure
 (define makefunclosure
-  (lambda (func)
-    (list (getfuncname func) (getformparams func) (getfuncbody func))))
+  (lambda (func type)
+    (list (getfuncname func) (getformparams func) (getfuncbody func) type)))
 
 ; takes an instance function definition and a state and returns the function's closure with 'this
 ; added to the parameters
 (define instfunclosure
-  (lambda (func)
-    (list (getfuncname func) (cons 'this (getformparams func)) (getfuncbody func))))
+  (lambda (func type)
+    (list (getfuncname func) (cons 'this (getformparams func)) (getfuncbody func) type)))
 
 ; takes an abstract function definition and a state and returns the function's closure with an empty
 ; body
 (define abstfunclosure
-  (lambda (func)
-    (list (getfuncname func) (getformparams func) '())))
+  (lambda (func type)
+    (list (getfuncname func) (getformparams func) '() type)))
 
 ; retrieves a function's name from its definition or its closure
 (define getfuncname car)
@@ -210,6 +213,9 @@
 ; retrieves a function's body from its definition or its closure
 (define getfuncbody caddr)
 
+; retrieves a function's compile time type from its closure
+(define getcomptype cadddr)
+
 ; takes a function closure and a state and returns the layer of the state where the function resides
 (define getfuncstate
   (lambda (closure state)
@@ -219,7 +225,7 @@
   (lambda (closure state return)
     (cond
       ((null? state)                                 (error 'nofunc "Function not defined"))
-      ((eq? (firstname state) (getfuncname closure)) (return state))
+      ((eq? (firstname state) (getcomptype closure)) (return state))
       ((null? (toplayer state))                      (getfuncstate-cpt closure
                                                                        (removelayer state)
                                                                        (lambda (v) v)))
@@ -228,10 +234,8 @@
                                                                              (restof state))
                                                                        (lambda (v)
                                                                          (return
-                                                                          (cons
-                                                                           (cons
-                                                                            (car (toplayer state))
-                                                                            (toplayer v))
+                                                                          (cons (cons (caar state)
+                                                                                      (toplayer v))
                                                                            (restof v)))))))))
 
 ; takes a set of actual parameters, formal parameters, function state, and current state, and binds
@@ -240,6 +244,7 @@
   (lambda (aparams fparams fstate cstate return throw)
     (cond
       ((and (null? fparams) (null? aparams)) fstate)
+      ((eq? (car fparams) 'this) (bindparams aparams (cdr fparams) fstate cstate return throw))
       ((or (null? fparams) (null? aparams))  (error 'mismatch "Number of arguments does not match"))
       (else                                  (bindparams (cdr aparams)
                                                          (cdr fparams)
@@ -260,11 +265,11 @@
   (lambda (expr state)
     (list (getclassname expr)
           (getsuper expr)
-          (getfuncs (getclassbody expr) (getsuper expr) state)
+          (getfuncs (getclassbody expr) (getsuper expr) (getclassname expr) state)
           (getclassvars (getclassbody expr))
           (getinstvars (getclassbody expr))
           (getclassinstvals (getclassbody expr) (getsuper expr) state)
-          (getconstr (getclassbody expr)))))
+          (getconstr (getclassbody expr) (getclassname expr)))))
 
 ; takes a class definition/closure and returns the class name
 (define getclassname car)
@@ -278,11 +283,11 @@
 ; take the body of a class definition and the state and return a list of the closures of the class
 ; functions
 (define getfuncs
-  (lambda (tree super state)
-    (getfuncs-cpt tree super state (lambda (v) v))))
+  (lambda (tree super this state)
+    (getfuncs-cpt tree super this state (lambda (v) v))))
 
 (define getfuncs-cpt
-  (lambda (tree super state return)
+  (lambda (tree super this state return)
     (cond
       ((and (null? tree) (null? super))
        (return '(())))
@@ -291,29 +296,32 @@
       ((eq? (operator (car tree)) 'static-function)   ; static function
        (getfuncs-cpt (cdr tree)
                      super
+                     this
                      state
                      (lambda (v)
                        (return (addbinding (getfuncname (restof (car tree)))
-                                           (makefunclosure (restof (car tree)))
+                                           (makefunclosure (restof (car tree)) this)
                                            v)))))
       ((eq? (operator (car tree)) 'function)          ; instance function
        (getfuncs-cpt (cdr tree)
                      super
+                     this
                      state
                      (lambda (v)
                        (return (addbinding (getfuncname (restof (car tree)))
-                                           (instfunclosure (restof (car tree)))
+                                           (instfunclosure (restof (car tree)) this)
                                            v)))))
       ((eq? (operator (car tree)) 'abstract-function) ; abstract functions
        (getfuncs-cpt (cdr tree)
                      super
+                     this
                      state
                      (lambda (v)
                        (return (addbinding (getfuncname (restof (car tree)))
-                                           (abstfunclosure (restof (car tree)))
+                                           (abstfunclosure (restof (car tree)) this)
                                            v)))))
       (else
-       (getfuncs-cpt (cdr tree) super state return)))))
+       (getfuncs-cpt (cdr tree) super this state return)))))
 
 ; takes a class closure and gets its function list
 (define getfuncsfromclosure caddr)
@@ -374,24 +382,23 @@
   
 ; takes the body of a class definition and the state and returns the closure of the constructor
 (define getconstr
-  (lambda (tree)
+  (lambda (tree this)
     (cond
       ((null? tree)                             '())
-      ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)))
-      (else                                     (getconstr (cdr tree))))))
+      ((eq? (operator (car tree)) 'constructor) (makefunclosure (car tree)) this)
+      (else                                     (getconstr (cdr tree) this)))))
 
 ;; INSTANCE-RELATED HELPER FUNCTIONS
 
 ; takes a run time type from a constructor call (e.g. (new A)) and returns the instance closure
 (define makeinstclosure
-  (lambda (type)
-    (list type (getobjinstvals type))))
+  (lambda (runtype)
+    (list (getclassname runtype) (getobjinstvals runtype))))
 
 ; takes a run time type and returns the values of the instance variables
 (define getobjinstvals
-  (lambda (expr)
-    expr))
-
+  (lambda (runtype)
+    (reverse (getvalsfromclos runtype))))
 
 ;; MAPPINGS
 
@@ -460,14 +467,19 @@
                                throw))
                   return
                   throw))
-      ((eq? 'funcall (operator expr)) (next (funcall (getvar (lookup (leftop expr) state)) ; func
-                                                     (param expr)
-                                                     state
-                                                     return
-                                                     throw))) 
-      ((eq? #t (M_bool expr state return throw)) (next 'true))     ; true
-      ((eq? #f (M_bool expr state return throw)) (next 'false))    ; false
-      (else (error 'unknownop "Bad Operator")))))                  ; error
+      ((eq? 'funcall (operator expr))
+       (next (funcall (getvar (lookup (leftop expr) state)) (param expr) state return throw)))
+      ((eq? 'new (operator expr))                             ; instructor call
+       (next (makeinstclosure (getvar (lookup (leftop expr) state)))))
+      ((eq? #t (M_bool expr state return throw))              ; true
+       (next 'true))
+      ((eq? #f (M_bool expr state return throw))              ; false
+       (next 'false))
+      ((eq? (operator expr ) 'dot)    (next (lookup(rightop expr) (lookup (leftop expr)state))))
+      (else                                                   ; error
+       (error 'unknownop "Bad Operator")))))
+
+
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
@@ -572,18 +584,17 @@
 
 ; takes an expression and a state and returns a new state
 (define M_state
-  (lambda (expr state return throw type)
+  (lambda (expr state return throw)
     (M_state-cpt expr
                  state
                  (lambda (v) v)
                  (lambda (v) v)
                  (lambda (v) (error 'badcontinue "Invalid Continue"))
                  (lambda (v) (error 'badbreak "Invalid Break"))
-                 throw
-                 type)))
+                 throw)))
 
 (define M_state-cpt
-  (lambda (expr state return next continue break throw type)
+  (lambda (expr state return next continue break throw)
     (cond
       ((null? expr)       (next state))
       ((not (pair? expr)) (next state))                                            ; not a statement
@@ -650,9 +661,9 @@
       ((eq? (operator expr) 'continue) (continue state))                            ; continue
       ((eq? (operator expr) 'break)    (break state))                               ; break
       ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw)));throw
-      ((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
-                                                         (makefunclosure (restof expr))
-                                                         state)))
+      ;((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
+      ;                                                   (makefunclosure (restof expr))
+      ;                                                   state)))
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
                                                              (param expr)
                                                              state
@@ -669,8 +680,10 @@
 ; If it's a method than funcall is used, else the value is retrieved
 (define handledot
   (lambda (instance expr)
-    ()))
-    
+    (if (lookup expr instance) (funcall (lookup expr instance))
+        (error 'thrownerror "could not find expression"))))
+
+
 ; M_state function that deals with statement blocks
 (define block
   (lambda (tree state return next continue break throw)
