@@ -392,6 +392,7 @@
   (lambda (expr)
     expr))
 
+
 ;; MAPPINGS
 
 ; maps an expression to a numerical value
@@ -571,17 +572,18 @@
 
 ; takes an expression and a state and returns a new state
 (define M_state
-  (lambda (expr state return throw)
+  (lambda (expr state return throw type)
     (M_state-cpt expr
                  state
                  (lambda (v) v)
                  (lambda (v) v)
                  (lambda (v) (error 'badcontinue "Invalid Continue"))
                  (lambda (v) (error 'badbreak "Invalid Break"))
-                 throw)))
+                 throw
+                 type)))
 
 (define M_state-cpt
-  (lambda (expr state return next continue break throw)
+  (lambda (expr state return next continue break throw type)
     (cond
       ((null? expr)       (next state))
       ((not (pair? expr)) (next state))                                            ; not a statement
@@ -660,8 +662,15 @@
       ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
                                                         (makeclassclosure (restof expr) state)
                                                         state)))
+      ((eq? (operator expr ) 'dot)    (next (begin (handledot(lookup(leftop expr) state)(rightop expr)))))
       (else (next state)))))
-      
+
+; Helps the dot operator figure out what the right operator is given the instance and state
+; If it's a method than funcall is used, else the value is retrieved
+(define handledot
+  (lambda (instance expr)
+    ()))
+    
 ; M_state function that deals with statement blocks
 (define block
   (lambda (tree state return next continue break throw)
