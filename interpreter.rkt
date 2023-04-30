@@ -479,8 +479,6 @@
       (else                                                   ; error
        (error 'unknownop "Bad Operator")))))
 
-
-
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
 (define funcall
