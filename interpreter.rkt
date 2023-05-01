@@ -341,7 +341,8 @@
   (lambda (tree super state return)
     (cond
       ((and (null? tree) (null? super)) (return '()))
-      ((null? tree)                     (return (getvarsfromclos (getvar (lookup super state)))))
+      ((null? tree)                     (return (getvarsfromclos (getvar (lookup (cadr super)
+                                                                                 state)))))
       ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
                                                          super
                                                          state
@@ -410,7 +411,10 @@
     (cond
       ((or (number? expr) (eq? expr 'true) (eq? expr 'false)) ; atomic value
        (next expr))
-      ((symbol? expr) (next (getvar (lookup expr state))))    ; variable
+      ((eq? expr 'super)
+       (next (getsuperclass (getvar (lookup 'this state)) state)))
+      ((symbol? expr)                                         ; variable
+       (next (getvar (lookup expr state))))
       ((eq? (operator expr) '+)                               ; addition
        (M_val-cpt (leftop expr)
                   state
@@ -501,7 +505,9 @@
 ; takes a dot operation and retrieves the closure of the left-hand side
 (define getdotleft
   (lambda (expr state return throw)
-    (M_val (leftop expr) state return throw)))
+    (if (eq? (leftop expr) 'super)
+        (getsuperclass (getvar (lookup 'this state)) state)
+        (M_val (leftop expr) state return throw))))
 
 ; helper function to retrieve the variable name list from an instance or class closure
 (define getvarnames
@@ -520,10 +526,19 @@
 ; takes the left operator for a function call and returns the function closure to pass to funcall
 (define getfunclosure
   (lambda (expr state return throw)
-    (if (and (pair? expr) (eq? 'dot (operator expr)))
-        (findfunc (rightop expr)
-                  (getfuncsfromclosure (findClass (car (getdotleft expr state return throw)) state)))
-        (getvar (lookup expr state)))))
+    (cond
+      ((and (pair? expr) (eq? 'dot (operator expr)) (eq? 'super (leftop expr)))
+       (findfunc (rightop expr)
+                 (getfuncsfromclosure (getsuperclass (getvar (lookup 'this state)) state))))
+      ((and (pair? expr) (eq? 'dot (operator expr)))
+       (findfunc (rightop expr)
+                 (getfuncsfromclosure (findClass (car (getdotleft expr state return throw)) state))))
+      (else
+       (getvar (lookup expr state))))))
+
+(define getsuperclass
+  (lambda (instclosure state)
+    (findClass (cadr (getsuper (findClass (car instclosure) state))) state)))
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
