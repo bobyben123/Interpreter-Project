@@ -158,16 +158,21 @@
   (lambda (name state)
     (cond
       ; #f if the variable has not been declared, #t if it has been declared but not initialized
-      ((null? state)                #f)
-      ((eq? (firstname state) name) (firstval state))
-      ((null? (toplayer state))     (lookup name (restof state)))
-      ((and (pair? name)(eq? (operator name) 'dot))  (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
-      (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
+      ((null? state)
+       #f)
+      ((eq? (firstname state) name)
+       (firstval state))
+      ((null? (toplayer state))
+       (lookup name (restof state)))
+      ((and (pair? name) (eq? (operator name) 'dot))
+       (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
+      (else
+       (lookup name (cons (cdr (toplayer state)) (restof state)))))))
 
 ; given a dot operation and a state, find the class closure in the state
 (define getclosure
-  (lambda (name state)
-    (findClass (car (unbox(lookup (leftop name) state))) state)))
+  (lambda (expr state)
+    (findClass (car (getvar (lookup (leftop expr) state))) state)))
 
 ; takes the output of lookup and returns the variable's value or the appropriate error
 (define getvar
@@ -236,7 +241,7 @@
                                                                          (return
                                                                           (cons (cons (caar state)
                                                                                       (toplayer v))
-                                                                           (restof v)))))))))
+                                                                                (restof v)))))))))
 
 ; takes a set of actual parameters, formal parameters, function state, and current state, and binds
 ; the actual parameters to the current parameters
@@ -334,14 +339,15 @@
 (define getclassvars-cpt
   (lambda (tree return)
     (cond
-      ((null? tree)                            (return '()))
-      ((eq? (operator (car tree)) 'static-var) (return (getclassvars-cpt (cdr tree)
-                                                                 (lambda (v)
-                                                                   (return
-                                                                    (cons (list (leftop (car tree))
-                                                                                (rightop (car tree)))
-                                                                          v))))))
-      (else                                    (getclassvars-cpt (cdr tree) return)))))
+      ((null? tree)
+       (return '()))
+      ((eq? (operator (car tree)) 'static-var)
+       (return (getclassvars-cpt (cdr tree)
+                                 (lambda (v)
+                                   (return (cons (list (leftop (car tree)) (rightop (car tree)))
+                                                 v))))))
+      (else
+       (getclassvars-cpt (cdr tree) return)))))
 
 ; takes the body of a class definition and returns a list of the instance variable names
 (define getinstvars
@@ -474,13 +480,14 @@
                   throw))
       ((eq? 'funcall (operator expr))
        (next (funcall (getvar (lookup (leftop expr) state)) (param expr) state return throw)))
-      ((eq? 'new (operator expr))                             ; instructor call
+      ((eq? 'new (operator expr))                             ; constructor call
        (next (makeinstclosure (getvar (lookup (leftop expr) state)))))
       ((eq? #t (M_bool expr state return throw))              ; true
        (next 'true))
       ((eq? #f (M_bool expr state return throw))              ; false
        (next 'false))
-      ((eq? (operator expr ) 'dot)    (next (getdot expr state)))
+      ((eq? (operator expr) 'dot)                             ; dot operator
+       (next (getdot expr state)))
       (else                                                   ; error
        (error 'unknownop "Bad Operator")))))
 
@@ -488,8 +495,8 @@
 ; Takes the instance closure name, variable, and state and returns the value of the variable
 (define getdot
   (lambda (expr state)
-    (list-ref (reverse (cadr (unbox (lookup (leftop expr) state)))) (index-of (getvarsfromclos(getclosure expr state)) (rightop expr)))))
-    
+    (list-ref (reverse (cadr (getvar (lookup (leftop expr) state))))
+              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)))))
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
@@ -680,18 +687,19 @@
                                                              return
                                                              throw)
                                                     state)))
-      ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
-                                                        (makeclassclosure (restof expr) state)
-                                                        state)))
-      ((eq? (operator expr ) 'dot)    (next (begin (handledot(lookup(leftop expr) state)(rightop expr)))))
-      (else (next state)))))
+      ((eq? (operator expr ) 'class)   (next (addbinding (leftop expr)               ; class def
+                                                         (makeclassclosure (restof expr) state)
+                                                         state)))
+      ;((eq? (operator expr ) 'dot)     (next (handledot (lookup (leftop expr) state)
+      ;                                                  (rightop expr))))
+      (else                            (next state)))))
 
 ; Helps the dot operator figure out what the right operator is given the instance and state
 ; If it's a method than funcall is used, else the value is retrieved
-(define handledot
-  (lambda (instance expr)
-    (if (lookup expr instance) (funcall (lookup expr instance))
-        (error 'thrownerror "could not find expression"))))
+;(define handledot
+;  (lambda (instance expr)
+;    (if (lookup expr instance) (funcall (lookup expr instance))
+;        (error 'thrownerror "could not find expression"))))
 
 
 ; M_state function that deals with statement blocks
