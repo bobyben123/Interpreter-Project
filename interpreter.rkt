@@ -423,7 +423,7 @@
     (cond
       ((or (number? expr) (eq? expr 'true) (eq? expr 'false)) ; atomic value
        (next expr))
-      ((symbol? expr) (next (getvar (lookup expr state))))  ; variable
+      ((symbol? expr) (next (getvar (lookup expr state))))    ; variable
       ((eq? (operator expr) '+)                               ; addition
        (M_val-cpt (leftop expr)
                   state
@@ -520,18 +520,18 @@
 (define M_bool-cpt
   (lambda (expr state next return throw)
     (cond
-      ((or (eq? expr #t) (eq? expr 'true))  (next #t))                                        ; #t
-      ((or (eq? expr #f) (eq? expr 'false)) (next #f))                                        ; #f
-      ((symbol? expr)                       (next (getvar (lookup expr state))))              ; var
-      ((eq? (operator expr) '<)             (next (< (M_val (leftop expr) state return throw) ; <
+      ((or (eq? expr #t) (eq? expr 'true))  (next #t))                                          ; #t
+      ((or (eq? expr #f) (eq? expr 'false)) (next #f))                                          ; #f
+      ((symbol? expr)                       (next (getvar (lookup expr state))))                ; var
+      ((eq? (operator expr) '<)             (next (< (M_val (leftop expr) state return throw)   ; <
                                                      (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '>)             (next (> (M_val (leftop expr) state return throw) ; >
+      ((eq? (operator expr) '>)             (next (> (M_val (leftop expr) state return throw)   ; >
                                                      (M_val (rightop expr) state return throw))))
       ((eq? (operator expr) '==)            (next (eq? (M_val (leftop expr) state return throw) ; =
                                                        (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '<=)            (next (<= (M_val (leftop expr) state return throw) ; <=
+      ((eq? (operator expr) '<=)            (next (<= (M_val (leftop expr) state return throw)  ; <=
                                                       (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '>=)            (next (>= (M_val (leftop expr) state return throw) ; >=
+      ((eq? (operator expr) '>=)            (next (>= (M_val (leftop expr) state return throw)  ; >=
                                                       (M_val (rightop expr) state return throw))))
       ((eq? (operator expr) '!=)            (next (not (eq? (M_val (leftop expr) state return throw)
                                                             (M_val (rightop expr)
@@ -548,7 +548,7 @@
                                                                                  throw))))
                                                         return
                                                         throw))
-      ((eq? (operator expr) '&&)            (M_bool-cpt (leftop expr)                           ; and
+      ((eq? (operator expr) '&&)            (M_bool-cpt (leftop expr)                            ; and
                                                         state
                                                         (lambda (v1)
                                                           (M_bool-cpt (rightop expr)
@@ -569,7 +569,7 @@
                                                                       throw))
                                                         return
                                                         throw))
-      ((eq? (operator expr) '||)            (M_bool-cpt (leftop expr)                           ; or
+      ((eq? (operator expr) '||)            (M_bool-cpt (leftop expr)                             ; or
                                                         state
                                                         (lambda (v1)
                                                           (M_bool-cpt (rightop expr)
@@ -590,7 +590,7 @@
                                                                       throw))
                                                         return
                                                         throw))
-      ((eq? 'funcall (operator expr))       (next (funcall (getvar (lookup (leftop expr) state))
+      ((eq? 'funcall (operator expr))       (next (funcall (getvar (lookup (leftop expr) state)) ; fun
                                                            (param expr)
                                                            state
                                                            return
@@ -665,7 +665,7 @@
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                         ; try-catch-finally
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                                      ; tcf
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -674,13 +674,10 @@
                                             continue
                                             break
                                             throw))
-      ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw))) ; return
-      ((eq? (operator expr) 'continue) (continue state))                            ; continue
-      ((eq? (operator expr) 'break)    (break state))                               ; break
-      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw)));throw
-      ;((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
-      ;                                                   (makefunclosure (restof expr))
-      ;                                                   state)))
+      ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw)))      ; ret
+      ((eq? (operator expr) 'continue) (continue state))                                       ; cont
+      ((eq? (operator expr) 'break)    (break state))                                          ; break
+      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
                                                              (param expr)
                                                              state
@@ -690,17 +687,7 @@
       ((eq? (operator expr ) 'class)   (next (addbinding (leftop expr)               ; class def
                                                          (makeclassclosure (restof expr) state)
                                                          state)))
-      ;((eq? (operator expr ) 'dot)     (next (handledot (lookup (leftop expr) state)
-      ;                                                  (rightop expr))))
       (else                            (next state)))))
-
-; Helps the dot operator figure out what the right operator is given the instance and state
-; If it's a method than funcall is used, else the value is retrieved
-;(define handledot
-;  (lambda (instance expr)
-;    (if (lookup expr instance) (funcall (lookup expr instance))
-;        (error 'thrownerror "could not find expression"))))
-
 
 ; M_state function that deals with statement blocks
 (define block
