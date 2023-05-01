@@ -94,28 +94,6 @@
   (lambda (name value state)
     (cons (cons (list name (box value)) (toplayer state)) (restof state))))
 
-; binds a value to an existing name
-(define assign
-  (lambda (name value state)
-    (assign-cpt name value state (lambda (v) v))))
-
-(define assign-cpt
-  (lambda (name value state return)
-    (cond
-      ((null? state)                (error 'novar "Variable Not Declared"))
-      ((null? (toplayer state))     (assign-cpt name
-                                                value
-                                                (restof state)
-                                                (lambda (v) (return (cons (toplayer state) v)))))
-      ((eq? (firstname state) name) (begin (set-box! (firstval state) value) (return state)))
-      (else                         (assign-cpt name
-                                                value
-                                                (cons (cdr (toplayer state)) (restof state))
-                                                (lambda (v)
-                                                  (return (cons (cons (car (toplayer state))
-                                                                      (toplayer v))
-                                                                (restof v)))))))))
-
 ; removes a name-value pair from the state
 (define removebinding
   (lambda (name state)
@@ -164,9 +142,9 @@
        (lookup name (cons (cdr (toplayer state)) (restof state)))))))
 
 ; given a dot operation and a state, find the class closure in the state
-(define getclosure
-  (lambda (expr state)
-    (findClass (car (getvar (lookup (leftop expr) state))) state)))
+;(define getclosure
+;  (lambda (expr state)
+;    (findClass (car (getvar (lookup (leftop expr) state))) state)))
 
 ; takes the output of lookup and returns the variable's value or the appropriate error
 (define getvar
@@ -264,8 +242,8 @@
     (list (getclassname expr)
           (getsuper expr)
           (getfuncs (getclassbody expr) (getsuper expr) (getclassname expr) state)
-          (getclassvars (getclassbody expr))
-          (getinstvars (getclassbody expr))
+          (getclassvars (getclassbody expr) (getsuper expr) state)
+          (getinstvars (getclassbody expr) (getsuper expr) state)
           (getclassinstvals (getclassbody expr) (getsuper expr) state)
           (getconstr (getclassbody expr) (getclassname expr)))))
 
@@ -331,35 +309,45 @@
 
 ; takes the body of a class definition and returns a list of the class variables
 (define getclassvars
-  (lambda (tree)
-    (getclassvars-cpt tree (lambda (v) v))))
+  (lambda (tree super state)
+    (getclassvars-cpt tree super state (lambda (v) v))))
 
 (define getclassvars-cpt
-  (lambda (tree return)
+  (lambda (tree super state return)
     (cond
-      ((null? tree)
+      ((and (null? tree) (null? super))
        (return '()))
+      ((null? tree)
+       (return (getclassvarsfromclos (getvar (lookup super state)))))
       ((eq? (operator (car tree)) 'static-var)
        (return (getclassvars-cpt (cdr tree)
+                                 super
+                                 state
                                  (lambda (v)
                                    (return (cons (list (leftop (car tree)) (rightop (car tree)))
                                                  v))))))
       (else
-       (getclassvars-cpt (cdr tree) return)))))
+       (getclassvars-cpt (cdr tree) super state return)))))
+
+; retrieves the list of class variables from the class closure
+(define getclassvarsfromclos cadddr)
 
 ; takes the body of a class definition and returns a list of the instance variable names
 (define getinstvars
-  (lambda (tree)
-    (getinstvars-cpt tree (lambda (v) v))))
+  (lambda (tree super state)
+    (getinstvars-cpt tree super state (lambda (v) v))))
 
 (define getinstvars-cpt
-  (lambda (tree return)
+  (lambda (tree super state return)
     (cond
-      ((null? tree)                     (return '()))
+      ((and (null? tree) (null? super)) (return '()))
+      ((null? tree)                     (return (getvarsfromclos (getvar (lookup super state)))))
       ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
+                                                         super
+                                                         state
                                                          (lambda (v)
                                                            (return (cons (leftop (car tree)) v)))))
-      (else                             (getinstvars-cpt (cdr tree) return)))))
+      (else                             (getinstvars-cpt (cdr tree) super state return)))))
 
 ; takes the body of a class definition and returns a list of the instance variable values
 (define getclassinstvals
@@ -407,7 +395,7 @@
 ; takes a run time type and returns the values of the instance variables
 (define getobjinstvals
   (lambda (runtype)
-    (reverse (getvalsfromclos runtype))))
+    (getvalsfromclos runtype)))
 
 ;; MAPPINGS
 
@@ -477,15 +465,19 @@
                   return
                   throw))
       ((and (eq? 'funcall (operator expr)) (pair? (leftop expr)) (eq? 'dot (operator (leftop expr))))
-       (next (funcall (getfunclosure (leftop expr) state)
+       (next (funcall (getfunclosure (leftop expr) state return throw)
                       (cons (leftop (leftop expr)) (param expr))
                       state
                       return
                       throw)))
       ((eq? 'funcall (operator expr))                         ; function call
-       (next (funcall (getfunclosure (leftop expr) state) (param expr) state return throw)))
+       (next (funcall (getfunclosure (leftop expr) state return throw)
+                      (param expr)
+                      state
+                      return
+                      throw)))
       ((eq? (operator expr) 'dot)                             ; dot operator
-       (next (getdot expr state)))
+       (next (getdot expr state return throw)))
       ((eq? 'new (operator expr))                             ; constructor call
        (next (makeinstclosure (getvar (lookup (leftop expr) state)))))
       ((eq? #t (M_bool expr state return throw))              ; true
@@ -498,21 +490,38 @@
 ; Helps get the value of a variable for a dot operator
 ; Takes the instance closure name, variable, and state and returns the value of the variable
 (define getdot
-  (lambda (expr state)
-    (list-ref (reverse (cadr (getvar (lookup (leftop expr) state))))
-              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)))))
+  (lambda (expr state return throw)
+    (if (null? (cddr (getdotleft expr state return throw)))
+        (list-ref (cadr (getdotleft expr state return throw))
+                  (index-of (reverse (getvarnames (getdotleft expr state return throw) state))
+                            (rightop expr)))
+        (lookup (rightop expr) (getclassvarsfromclos (getdotleft expr state return throw))))))
 
-; takes a dot operation and retrieves the instance closure of the left-hand side
-(define getinst
-  (lambda (expr state)
-    (getvar (lookup (leftop expr) state))))
+; takes a dot operation and retrieves the closure of the left-hand side
+(define getdotleft
+  (lambda (expr state return throw)
+    (M_val (leftop expr) state return throw)))
+
+; helper function to retrieve the variable name list from an instance or class closure
+(define getvarnames
+  (lambda (closure state)
+    (if (null? (cddr closure))
+        (getvarsfromclos (findClass (car closure) state))
+        (getvarsfromclos closure state))))
+
+; helper function to retrieve the variable value list from an instance or class closure
+(define getvarvals
+  (lambda (closure state)
+    (if (null? (cddr closure))
+        (cdr closure)
+        (getvalsfromclos closure state))))
 
 ; takes the left operator for a function call and returns the function closure to pass to funcall
 (define getfunclosure
-  (lambda (expr state)
+  (lambda (expr state return throw)
     (if (and (pair? expr) (eq? 'dot (operator expr)))
         (findfunc (rightop expr)
-                  (getfuncsfromclosure (findClass (car (getinst expr state)) state)))
+                  (getfuncsfromclosure (findClass (car (getdotleft expr state return throw)) state)))
         (getvar (lookup expr state)))))
 
 ; M_val function for processing function calls
@@ -712,6 +721,28 @@
                                                          (makeclassclosure (restof expr) state)
                                                          state)))
       (else                            (next state)))))
+
+; M_state function that binds a value to an existing name
+(define assign
+  (lambda (name value state)
+    (assign-cpt name value state (lambda (v) v))))
+
+(define assign-cpt
+  (lambda (name value state return)
+    (cond
+      ((null? state)                (error 'novar "Variable Not Declared"))
+      ((null? (toplayer state))     (assign-cpt name
+                                                value
+                                                (restof state)
+                                                (lambda (v) (return (cons (toplayer state) v)))))
+      ((eq? (firstname state) name) (begin (set-box! (firstval state) value) (return state)))
+      (else                         (assign-cpt name
+                                                value
+                                                (cons (cdr (toplayer state)) (restof state))
+                                                (lambda (v)
+                                                  (return (cons (cons (car (toplayer state))
+                                                                      (toplayer v))
+                                                                (restof v)))))))))
 
 ; M_state function that deals with statement blocks
 (define block
