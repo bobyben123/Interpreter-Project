@@ -19,17 +19,11 @@
 ; finds and runs the main function of a given class
 (define runmain
   (lambda (classname state return throw)
-    (funcall (findmain (getfuncsfromclosure (findClass classname state)))
+    (funcall (findfunc 'main (getfuncsfromclosure (findClass classname state)))
              '()
              state
              return
              throw)))
-
-;helps find and return the closure of the main function of a class given its function list
-(define findmain
-  (lambda (lis)
-    (getvar (lookup 'main lis))))
-      
 
 ; evaluate a parse tree and return the final state
 (define evaluate
@@ -108,6 +102,7 @@
 (define assign-cpt
   (lambda (name value state return)
     (cond
+      ((and(and (pair? name) (eq? (car name) 'dot))(eq? (leftop name) (firstname state))) (return (cons (assigndot name state value) (restof state))))
       ((null? state)                (error 'novar "Variable Not Declared"))
       ((null? (toplayer state))     (assign-cpt name
                                                 value
@@ -121,6 +116,13 @@
                                                   (return (cons (cons (car (toplayer state))
                                                                       (toplayer v))
                                                                 (restof v)))))))))
+
+; Helps change the value of a variable in an instance closure for a dot operator
+; Takes the instance closure name and variable, state, and value, and returns the new instance closure
+(define assigndot
+  (lambda (expr state value)
+    (cons (cons (leftop expr) (cons (cons (car (getinst expr state)) (cons (reverse (list-set (reverse (cadr (getvar (lookup (leftop expr) state))))
+              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)) value)) '()))'()))'())))
 
 ; removes a name-value pair from the state
 (define removebinding
@@ -158,16 +160,21 @@
   (lambda (name state)
     (cond
       ; #f if the variable has not been declared, #t if it has been declared but not initialized
-      ((null? state)                #f)
-      ((eq? (firstname state) name) (firstval state))
-      ((null? (toplayer state))     (lookup name (restof state)))
-      ((and (pair? name)(eq? (operator name) 'dot))  (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
-      (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
+      ((null? state)
+       #f)
+      ((eq? (firstname state) name)
+       (firstval state))
+      ((null? (toplayer state))
+       (lookup name (restof state)))
+      ((and (pair? name) (eq? (operator name) 'dot))
+       (lookup (leftop name) state))
+      (else
+       (lookup name (cons (cdr (toplayer state)) (restof state)))))))
 
 ; given a dot operation and a state, find the class closure in the state
 (define getclosure
-  (lambda (name state)
-    (findClass (car (unbox(lookup (leftop name) state))) state)))
+  (lambda (expr state)
+    (findClass (car (getvar (lookup (leftop expr) state))) state)))
 
 ; takes the output of lookup and returns the variable's value or the appropriate error
 (define getvar
@@ -236,7 +243,7 @@
                                                                          (return
                                                                           (cons (cons (caar state)
                                                                                       (toplayer v))
-                                                                           (restof v)))))))))
+                                                                                (restof v)))))))))
 
 ; takes a set of actual parameters, formal parameters, function state, and current state, and binds
 ; the actual parameters to the current parameters
@@ -244,7 +251,6 @@
   (lambda (aparams fparams fstate cstate return throw)
     (cond
       ((and (null? fparams) (null? aparams)) fstate)
-      ((eq? (car fparams) 'this) (bindparams aparams (cdr fparams) fstate cstate return throw))
       ((or (null? fparams) (null? aparams))  (error 'mismatch "Number of arguments does not match"))
       (else                                  (bindparams (cdr aparams)
                                                          (cdr fparams)
@@ -326,6 +332,11 @@
 ; takes a class closure and gets its function list
 (define getfuncsfromclosure caddr)
 
+; takes a function name and a list of functions and returns the function's closure
+(define findfunc
+  (lambda (name lis)
+    (getvar (lookup name lis))))
+
 ; takes the body of a class definition and returns a list of the class variables
 (define getclassvars
   (lambda (tree)
@@ -334,14 +345,15 @@
 (define getclassvars-cpt
   (lambda (tree return)
     (cond
-      ((null? tree)                            (return '()))
-      ((eq? (operator (car tree)) 'static-var) (return (getclassvars-cpt (cdr tree)
-                                                                 (lambda (v)
-                                                                   (return
-                                                                    (cons (list (leftop (car tree))
-                                                                                (rightop (car tree)))
-                                                                          v))))))
-      (else                                    (getclassvars-cpt (cdr tree) return)))))
+      ((null? tree)
+       (return '()))
+      ((eq? (operator (car tree)) 'static-var)
+       (return (getclassvars-cpt (cdr tree)
+                                 (lambda (v)
+                                   (return (cons (list (leftop (car tree)) (rightop (car tree)))
+                                                 v))))))
+      (else
+       (getclassvars-cpt (cdr tree) return)))))
 
 ; takes the body of a class definition and returns a list of the instance variable names
 (define getinstvars
@@ -417,7 +429,7 @@
     (cond
       ((or (number? expr) (eq? expr 'true) (eq? expr 'false)) ; atomic value
        (next expr))
-      ((symbol? expr) (next (getvar (lookup expr state))))  ; variable
+      ((symbol? expr) (next (getvar (lookup expr state))))    ; variable
       ((eq? (operator expr) '+)                               ; addition
        (M_val-cpt (leftop expr)
                   state
@@ -472,29 +484,49 @@
                                throw))
                   return
                   throw))
-      ((eq? 'funcall (operator expr))
-       (next (funcall (getvar (lookup (leftop expr) state)) (param expr) state return throw)))
-      ((eq? 'new (operator expr))                             ; instructor call
+      ((and (eq? 'funcall (operator expr)) (pair? (leftop expr)) (eq? 'dot (operator (leftop expr))))
+       (next (funcall (getfunclosure (leftop expr) state)
+                      (cons (leftop (leftop expr)) (param expr))
+                      state
+                      return
+                      throw)))
+      ((eq? 'funcall (operator expr))                         ; function call
+       (next (funcall (getfunclosure (leftop expr) state) (param expr) state return throw)))
+      ((eq? (operator expr) 'dot)                             ; dot operator
+       (next (getdot expr state)))
+      ((eq? 'new (operator expr))                             ; constructor call
        (next (makeinstclosure (getvar (lookup (leftop expr) state)))))
       ((eq? #t (M_bool expr state return throw))              ; true
        (next 'true))
       ((eq? #f (M_bool expr state return throw))              ; false
        (next 'false))
-      ((eq? (operator expr ) 'dot)    (next (getdot expr state)))
       (else                                                   ; error
        (error 'unknownop "Bad Operator")))))
 
-; Helps get the value of a variable for a dot operator
+; Helps get the value of a variable for a dot operator (i.e. (dot a b) or a.b in Java
 ; Takes the instance closure name, variable, and state and returns the value of the variable
 (define getdot
   (lambda (expr state)
-    (list-ref (reverse (cadr (unbox (lookup (leftop expr) state)))) (index-of (getvarsfromclos(getclosure expr state)) (rightop expr)))))
-    
+    (list-ref (reverse (cadr (getvar (lookup (leftop expr) state))))
+              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)))))
+
+; takes a dot operation and retrieves the instance closure of the left-hand side
+(define getinst
+  (lambda (expr state)
+    (getvar (lookup (leftop expr) state))))
+
+; takes the left operator for a function call and returns the function closure to pass to funcall
+(define getfunclosure
+  (lambda (expr state)
+    (if (and (pair? expr) (eq? 'dot (operator expr)))
+        (findfunc (rightop expr)
+                  (getfuncsfromclosure (findClass (car (getinst expr state)) state)))
+        (getvar (lookup expr state)))))
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
 (define funcall
-  (lambda (closure params state return throw)
+  (lambda (closure params state return throw) 
     (M_state (cons 'begin (getfuncbody closure))
              (bindparams params
                          (getformparams closure)
@@ -513,18 +545,18 @@
 (define M_bool-cpt
   (lambda (expr state next return throw)
     (cond
-      ((or (eq? expr #t) (eq? expr 'true))  (next #t))                                        ; #t
-      ((or (eq? expr #f) (eq? expr 'false)) (next #f))                                        ; #f
-      ((symbol? expr)                       (next (getvar (lookup expr state))))              ; var
-      ((eq? (operator expr) '<)             (next (< (M_val (leftop expr) state return throw) ; <
+      ((or (eq? expr #t) (eq? expr 'true))  (next #t))                                          ; #t
+      ((or (eq? expr #f) (eq? expr 'false)) (next #f))                                          ; #f
+      ((symbol? expr)                       (next (getvar (lookup expr state))))                ; var
+      ((eq? (operator expr) '<)             (next (< (M_val (leftop expr) state return throw)   ; <
                                                      (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '>)             (next (> (M_val (leftop expr) state return throw) ; >
+      ((eq? (operator expr) '>)             (next (> (M_val (leftop expr) state return throw)   ; >
                                                      (M_val (rightop expr) state return throw))))
       ((eq? (operator expr) '==)            (next (eq? (M_val (leftop expr) state return throw) ; =
                                                        (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '<=)            (next (<= (M_val (leftop expr) state return throw) ; <=
+      ((eq? (operator expr) '<=)            (next (<= (M_val (leftop expr) state return throw)  ; <=
                                                       (M_val (rightop expr) state return throw))))
-      ((eq? (operator expr) '>=)            (next (>= (M_val (leftop expr) state return throw) ; >=
+      ((eq? (operator expr) '>=)            (next (>= (M_val (leftop expr) state return throw)  ; >=
                                                       (M_val (rightop expr) state return throw))))
       ((eq? (operator expr) '!=)            (next (not (eq? (M_val (leftop expr) state return throw)
                                                             (M_val (rightop expr)
@@ -541,7 +573,7 @@
                                                                                  throw))))
                                                         return
                                                         throw))
-      ((eq? (operator expr) '&&)            (M_bool-cpt (leftop expr)                           ; and
+      ((eq? (operator expr) '&&)            (M_bool-cpt (leftop expr)                            ; and
                                                         state
                                                         (lambda (v1)
                                                           (M_bool-cpt (rightop expr)
@@ -562,7 +594,7 @@
                                                                       throw))
                                                         return
                                                         throw))
-      ((eq? (operator expr) '||)            (M_bool-cpt (leftop expr)                           ; or
+      ((eq? (operator expr) '||)            (M_bool-cpt (leftop expr)                             ; or
                                                         state
                                                         (lambda (v1)
                                                           (M_bool-cpt (rightop expr)
@@ -583,7 +615,7 @@
                                                                       throw))
                                                         return
                                                         throw))
-      ((eq? 'funcall (operator expr))       (next (funcall (getvar (lookup (leftop expr) state))
+      ((eq? 'funcall (operator expr))       (next (funcall (getvar (lookup (leftop expr) state)) ; fun
                                                            (param expr)
                                                            state
                                                            return
@@ -658,7 +690,7 @@
                                               continue
                                               break
                                               throw))
-      ((eq? (operator expr) 'try)      (tcf (leftop expr)                         ; try-catch-finally
+      ((eq? (operator expr) 'try)      (tcf (leftop expr)                                      ; tcf
                                             (rightop expr)
                                             (cadddr expr)
                                             state
@@ -667,32 +699,27 @@
                                             continue
                                             break
                                             throw))
-      ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw))) ; return
-      ((eq? (operator expr) 'continue) (continue state))                            ; continue
-      ((eq? (operator expr) 'break)    (break state))                               ; break
-      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw)));throw
-      ;((eq? (operator expr) 'function) (next (addbinding (leftop expr)              ; func def
-      ;                                                   (makefunclosure (restof expr))
-      ;                                                   state)))
-      ((eq? (operator expr) 'funcall)  (next (begin (funcall (getvar (lookup (leftop expr) state))
+      ((eq? (operator expr) 'return)   (return (M_val (leftop expr) state return throw)))      ; ret
+      ((eq? (operator expr) 'continue) (continue state))                                       ; cont
+      ((eq? (operator expr) 'break)    (break state))                                          ; break
+      ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
+      ((and (eq? (operator expr) 'funcall) (pair? (leftop expr)) (eq? 'dot (operator (leftop expr))))
+       (next (begin (funcall (getfunclosure (leftop expr) state)
+                             (cons (leftop (leftop expr)) (param expr))
+                             state
+                             return
+                             throw)
+                    state)))
+      ((eq? (operator expr) 'funcall)  (next (begin (funcall (getfunclosure (leftop expr) state)
                                                              (param expr)
                                                              state
                                                              return
                                                              throw)
                                                     state)))
-      ((eq? (operator expr ) 'class)  (next (addbinding (leftop expr)               ; class def
-                                                        (makeclassclosure (restof expr) state)
-                                                        state)))
-      ((eq? (operator expr ) 'dot)    (next (begin (handledot(lookup(leftop expr) state)(rightop expr)))))
-      (else (next state)))))
-
-; Helps the dot operator figure out what the right operator is given the instance and state
-; If it's a method than funcall is used, else the value is retrieved
-(define handledot
-  (lambda (instance expr)
-    (if (lookup expr instance) (funcall (lookup expr instance))
-        (error 'thrownerror "could not find expression"))))
-
+      ((eq? (operator expr ) 'class)   (next (addbinding (leftop expr)               ; class def
+                                                         (makeclassclosure (restof expr) state)
+                                                         state)))
+      (else                            (next state)))))
 
 ; M_state function that deals with statement blocks
 (define block
