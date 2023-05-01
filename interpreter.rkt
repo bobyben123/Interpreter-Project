@@ -164,7 +164,7 @@
       ((and (pair? name)(eq? (operator name) 'dot))  (lookup (rightop name) (getfuncsfromclosure (getclosure name state))))
       (else                         (lookup name (cons (cdr (toplayer state)) (restof state)))))))
 
-; given an instance closure name and a state, find the class closure in the state
+; given a dot operation and a state, find the class closure in the state
 (define getclosure
   (lambda (name state)
     (findClass (car (unbox(lookup (leftop name) state))) state)))
@@ -379,6 +379,11 @@
 (define getvalsfromclos
   (lambda (closure)
     (car (cdr (cddddr closure)))))
+
+; takes a class closure and returns the list of instance variables
+(define getvarsfromclos
+  (lambda (closure)
+    (car (cddddr closure))))
   
 ; takes the body of a class definition and the state and returns the closure of the constructor
 (define getconstr
@@ -475,9 +480,16 @@
        (next 'true))
       ((eq? #f (M_bool expr state return throw))              ; false
        (next 'false))
-      ((eq? (operator expr ) 'dot)    (next (lookup(rightop expr) (lookup (leftop expr)state))))
+      ((eq? (operator expr ) 'dot)    (next (getdot expr state)))
       (else                                                   ; error
        (error 'unknownop "Bad Operator")))))
+
+; Helps get the value of a variable for a dot operator
+; Takes the instance closure name, variable, and state and returns the value of the variable
+(define getdot
+  (lambda (expr state)
+    (list-ref (reverse (cadr (unbox (lookup (leftop expr) state)))) (index-of (getvarsfromclos(getclosure expr state)) (rightop expr)))))
+    
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
