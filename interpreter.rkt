@@ -102,27 +102,33 @@
 (define assign-cpt
   (lambda (name value state return)
     (cond
-      ((and(and (pair? name) (eq? (car name) 'dot))(eq? (leftop name) (firstname state))) (return (cons (assigndot name state value) (restof state))))
-      ((null? state)                (error 'novar "Variable Not Declared"))
-      ((null? (toplayer state))     (assign-cpt name
-                                                value
-                                                (restof state)
-                                                (lambda (v) (return (cons (toplayer state) v)))))
-      ((eq? (firstname state) name) (begin (set-box! (firstval state) value) (return state)))
-      (else                         (assign-cpt name
-                                                value
-                                                (cons (cdr (toplayer state)) (restof state))
-                                                (lambda (v)
-                                                  (return (cons (cons (car (toplayer state))
-                                                                      (toplayer v))
-                                                                (restof v)))))))))
+      ((and (and (pair? name) (eq? (car name) 'dot)) (eq? (leftop name) (firstname state)))
+       (begin (set-box! (firstval state) (assigndot name state value)) (return state)))
+      ((null? state)
+       (error 'novar "Variable Not Declared"))
+      ((null? (toplayer state))
+       (assign-cpt name value (restof state) (lambda (v) (return (cons (toplayer state) v)))))
+      ((eq? (firstname state) name)
+       (begin (set-box! (firstval state) value) (return state)))
+      (else
+       (assign-cpt name
+                   value
+                   (cons (cdr (toplayer state)) (restof state))
+                   (lambda (v)
+                     (return (cons (cons (car (toplayer state)) (toplayer v)) (restof v)))))))))
 
 ; Helps change the value of a variable in an instance closure for a dot operator
 ; Takes the instance closure name and variable, state, and value, and returns the new instance closure
 (define assigndot
   (lambda (expr state value)
-    (cons (cons (leftop expr) (cons (cons (car (getinst expr state)) (cons (reverse (list-set (reverse (cadr (getvar (lookup (leftop expr) state))))
-              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)) value)) '()))'()))'())))
+    (list (cons (leftop expr)
+                (list (cons (car (getinst expr state))
+                            (list (reverse (list-set (reverse (cadr (getvar (lookup (leftop expr)
+                                                                                    state))))
+                                                     (index-of (getvarsfromclos (getclosure expr
+                                                                                            state))
+                                                               (rightop expr))
+                                                     value)))))))))
 
 ; removes a name-value pair from the state
 (define removebinding
