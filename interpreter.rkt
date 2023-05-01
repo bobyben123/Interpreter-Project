@@ -268,7 +268,7 @@
       ((and (null? tree) (null? super))
        (return '(())))
       ((null? tree)
-       (return (getfuncsfromclosure (getvar (lookup super state)))))
+       (return (getfuncsfromclosure (getvar (lookup (cadr super) state)))))
       ((eq? (operator (car tree)) 'static-function)   ; static function
        (getfuncs-cpt (cdr tree)
                      super
@@ -318,7 +318,7 @@
       ((and (null? tree) (null? super))
        (return '()))
       ((null? tree)
-       (return (getclassvarsfromclos (getvar (lookup super state)))))
+       (return (getclassvarsfromclos (getvar (lookup (cadr super) state)))))
       ((eq? (operator (car tree)) 'static-var)
        (return (getclassvars-cpt (cdr tree)
                                  super
@@ -358,7 +358,8 @@
   (lambda (tree super state return)
     (cond
       ((and (null? super) (null? tree)) (return '()))
-      ((null? tree)                     (return (getvalsfromclos (getvar (lookup super state)))))
+      ((null? tree)                     (return (getvalsfromclos (getvar (lookup (cadr super)
+                                                                                 state)))))
       ((eq? (operator (car tree)) 'var) (getclassinstvals-cpt (cdr tree)
                                                               super
                                                               state
