@@ -190,6 +190,18 @@
       ((eq? v #t) (error 'noval "Variable Not Initalized"))
       (else       (unbox v)))))
 
+; searches for the value of a variable; if not found in the state, searches non-static variables
+(define findval
+  (lambda (name state)
+    (cond
+      ((lookup name state)
+       (getvar (lookup name state)))
+      ((index-of (getvarnames (getvar (lookup 'this state)) state) name)
+       (list-ref (getvarvals (getvar (lookup 'this state)) state)
+                 (index-of (reverse (getvarnames (getvar (lookup 'this state)) state)) name)))
+      (else
+       (error 'novar "Variable Not Declared")))))
+
 ; adds an empty new layer to the top of the state
 (define addlayer
   (lambda (state)
@@ -451,7 +463,7 @@
       ((eq? expr 'super)
        (next (getsuperclass (getvar (lookup 'this state)) state)))
       ((symbol? expr)                                         ; variable
-       (next (getvar (lookup expr state))))
+       (next (findval expr state)))
       ((eq? (operator expr) '+)                               ; addition
        (M_val-cpt (leftop expr)
                   state
@@ -556,14 +568,14 @@
   (lambda (closure state)
     (if (null? (cddr closure))
         (getvarsfromclos (findClass (car closure) state))
-        (getvarsfromclos closure state))))
+        (getvarsfromclos closure))))
 
 ; helper function to retrieve the variable value list from an instance or class closure
 (define getvarvals
   (lambda (closure state)
     (if (null? (cddr closure))
         (cdr closure)
-        (getvalsfromclos closure state))))
+        (getvalsfromclos closure))))
 
 ; takes the left operator for a function call and returns the function closure to pass to funcall
 (define getfunclosure
