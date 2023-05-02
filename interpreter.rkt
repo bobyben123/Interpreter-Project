@@ -121,14 +121,13 @@
 ; Takes the instance closure name and variable, state, and value, and returns the new instance closure
 (define assigndot
   (lambda (expr state value)
-    (list (cons (leftop expr)
-                (list (cons (car (getinst expr state))
-                            (list (reverse (list-set (reverse (cadr (getvar (lookup (leftop expr)
-                                                                                    state))))
-                                                     (index-of (getvarsfromclos (getclosure expr
-                                                                                            state))
-                                                               (rightop expr))
-                                                     value)))))))))
+    (list (list (cons (car (getinst expr state))
+                      (list (reverse (list-set (reverse (cadr (getvar (lookup (leftop expr)
+                                                                               state))))
+                                                (index-of (getvarsfromclos (getclosure expr
+                                                                                       state))
+                                                          (rightop expr))
+                                                value))))))))
 
 ; removes a name-value pair from the state
 (define removebinding
@@ -710,11 +709,11 @@
       ((eq? (operator expr) 'break)    (break state))                                          ; break
       ((eq? (operator expr) 'throw)    (throw state (M_val (leftop expr) state return throw))) ; throw
       ((and (eq? (operator expr) 'funcall) (pair? (leftop expr)) (eq? 'dot (operator (leftop expr))))
-       (next (begin (funcall (getfunclosure (leftop expr) state)
+       (next (begin (assign (leftop (leftop expr)) (caar (unbox(lookup 'this (funcall (getfunclosure (leftop expr) state)
                              (cons (leftop (leftop expr)) (param expr))
                              state
                              return
-                             throw)
+                             throw)))) state)
                     state)))
       ((eq? (operator expr) 'funcall)  (next (begin (funcall (getfunclosure (leftop expr) state)
                                                              (param expr)
@@ -726,6 +725,8 @@
                                                          (makeclassclosure (restof expr) state)
                                                          state)))
       (else                            (next state)))))
+
+
 
 ; M_state function that deals with statement blocks
 (define block
