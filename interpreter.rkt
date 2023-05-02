@@ -303,7 +303,7 @@
       ((and (null? tree) (null? super))
        (return '(())))
       ((null? tree)
-       (return (getfuncsfromclosure (getvar (lookup super state)))))
+       (return (getfuncsfromclosure (getvar (lookup (cadr super) state)))))
       ((eq? (operator (car tree)) 'static-function)   ; static function
        (getfuncs-cpt (cdr tree)
                      super
@@ -350,15 +350,22 @@
 (define getclassvars-cpt
   (lambda (tree return)
     (cond
-      ((null? tree)
+      ((and (null? tree) (null? super))
        (return '()))
+      ((null? tree)
+       (return (getclassvarsfromclos (getvar (lookup (cadr super) state)))))
       ((eq? (operator (car tree)) 'static-var)
        (return (getclassvars-cpt (cdr tree)
+                                 super
+                                 state
                                  (lambda (v)
                                    (return (cons (list (leftop (car tree)) (rightop (car tree)))
                                                  v))))))
       (else
-       (getclassvars-cpt (cdr tree) return)))))
+       (getclassvars-cpt (cdr tree) super state return)))))
+
+; retrieves the list of class variables from the class closure
+(define getclassvarsfromclos cadddr)
 
 ; takes the body of a class definition and returns a list of the instance variable names
 (define getinstvars
@@ -368,7 +375,10 @@
 (define getinstvars-cpt
   (lambda (tree return)
     (cond
-      ((null? tree)                     (return '()))
+      ((and (null? tree) (null? super)) (return '()))
+      ((null? tree)                     (return (getvarsfromclos (getvar (lookup (cadr super)
+                                                                                 state)))))
+
       ((eq? (operator (car tree)) 'var) (getinstvars-cpt (cdr tree)
                                                          (lambda (v)
                                                            (return (cons (leftop (car tree)) v)))))
@@ -383,7 +393,8 @@
   (lambda (tree super state return)
     (cond
       ((and (null? super) (null? tree)) (return '()))
-      ((null? tree)                     (return (getvalsfromclos (getvar (lookup super state)))))
+      ((null? tree)                     (return (getvalsfromclos (getvar (lookup (cadr super)
+                                                                                 state)))))
       ((eq? (operator (car tree)) 'var) (getclassinstvals-cpt (cdr tree)
                                                               super
                                                               state
@@ -434,7 +445,10 @@
     (cond
       ((or (number? expr) (eq? expr 'true) (eq? expr 'false)) ; atomic value
        (next expr))
-      ((symbol? expr) (next (getvar (lookup expr state))))    ; variable
+      ((eq? expr 'super)
+       (next (getsuperclass (getvar (lookup 'this state)) state)))
+      ((symbol? expr)                                         ; variable
+       (next (getvar (lookup expr state))))
       ((eq? (operator expr) '+)                               ; addition
        (M_val-cpt (leftop expr)
                   state
@@ -511,9 +525,12 @@
 ; Helps get the value of a variable for a dot operator (i.e. (dot a b) or a.b in Java
 ; Takes the instance closure name, variable, and state and returns the value of the variable
 (define getdot
-  (lambda (expr state)
-    (list-ref (reverse (cadr (getvar (lookup (leftop expr) state))))
-              (index-of (getvarsfromclos (getclosure expr state)) (rightop expr)))))
+  (lambda (expr state return throw)
+    (if (null? (cddr (getdotleft expr state return throw)))
+        (list-ref (cadr (getdotleft expr state return throw))
+                  (index-of (reverse (getvarnames (getdotleft expr state return throw) state))
+                            (rightop expr)))
+        (lookup (rightop expr) (getclassvarsfromclos (getdotleft expr state return throw))))))
 
 ; takes a dot operation and retrieves the instance closure of the left-hand side
 (define getinst
@@ -527,6 +544,45 @@
         (findfunc (rightop expr)
                   (getfuncsfromclosure (findClass (car (getinst expr state)) state)))
         (getvar (lookup expr state)))))
+
+
+; takes a dot operation and retrieves the closure of the left-hand side
+(define getdotleft
+  (lambda (expr state return throw)
+    (if (eq? (leftop expr) 'super)
+        (getsuperclass (getvar (lookup 'this state)) state)
+        (M_val (leftop expr) state return throw))))
+
+; helper function to retrieve the variable name list from an instance or class closure
+(define getvarnames
+  (lambda (closure state)
+    (if (null? (cddr closure))
+        (getvarsfromclos (findClass (car closure) state))
+        (getvarsfromclos closure state))))
+
+; helper function to retrieve the variable value list from an instance or class closure
+(define getvarvals
+  (lambda (closure state)
+    (if (null? (cddr closure))
+        (cdr closure)
+        (getvalsfromclos closure state))))
+
+; takes the left operator for a function call and returns the function closure to pass to funcall
+(define getfunclosure
+  (lambda (expr state return throw)
+    (cond
+      ((and (pair? expr) (eq? 'dot (operator expr)) (eq? 'super (leftop expr)))
+       (findfunc (rightop expr)
+                 (getfuncsfromclosure (getsuperclass (getvar (lookup 'this state)) state))))
+      ((and (pair? expr) (eq? 'dot (operator expr)))
+       (findfunc (rightop expr)
+                 (getfuncsfromclosure (findClass (car (getdotleft expr state return throw)) state))))
+      (else
+       (getvar (lookup expr state))))))
+
+(define getsuperclass
+  (lambda (instclosure state)
+    (findClass (cadr (getsuper (findClass (car instclosure) state))) state)))
 
 ; M_val function for processing function calls
 ; takes a function closure and a list of actual parameters and returns the function's return value
